@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 from pathlib import Path
 
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -44,18 +44,10 @@ class Settings(BaseSettings):
 def load_env_file(path: Path) -> None:
     """.env 파일을 os.environ 에 반영한다(RAG·AI 모듈과 Anthropic SDK 도 환경변수를 읽으므로).
 
-    이미 설정된 환경변수는 덮어쓰지 않는다.
+    이미 설정된 환경변수는 덮어쓰지 않는다. 따옴표·줄 끝 주석(`KEY=value  # 설명`)은 python-dotenv 규칙을 따른다.
     """
-    if not path.is_file():
-        return
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key, value = key.strip(), value.strip().strip('"').strip("'")
-        if key and key not in os.environ:
-            os.environ[key] = value
+    if path.is_file():
+        load_dotenv(path, override=False, encoding="utf-8-sig")  # -sig: 메모장이 붙인 BOM 무시
 
 
 @lru_cache

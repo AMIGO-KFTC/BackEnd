@@ -12,7 +12,7 @@ from pathlib import Path
 
 from amigo_agent import SLOTS, STAGE_LABEL, STAGE_NUMBER
 from amigo_rag import FORMAT_LABELS
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -99,6 +99,8 @@ def _mount_frontend(app: FastAPI, settings: Settings) -> None:
 
     @app.get("/{path:path}", include_in_schema=False)
     def spa(path: str):
+        if path == "api" or path.startswith("api/"):  # 없는 API 주소는 화면 대신 404
+            raise HTTPException(status_code=404, detail="없는 API 경로입니다.")
         candidate = (dist / path).resolve()
         if path and dist in candidate.parents and candidate.is_file():
             return FileResponse(candidate)

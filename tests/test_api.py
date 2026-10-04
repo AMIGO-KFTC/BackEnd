@@ -1,8 +1,10 @@
 import io
 import zipfile
 
+from fastapi.testclient import TestClient
 from pypdf import PdfReader
 
+from app.main import create_app
 from conftest import PROFILE, idle, upload, wait_for
 
 
@@ -160,3 +162,22 @@ def test_delete_session_removes_everything(client, settings, sample_dir):
     assert client.get(f"/api/sessions/{sid}").status_code == 404
     assert not (settings.upload_dir / sid).exists()
     assert client.get("/api/sessions/unknown/state").status_code == 404
+
+
+def test_serves_built_frontend(tmp_path, settings):
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<!doctype html><title>AMIGO</title>", encoding="utf-8")
+    (dist / "assets" / "app.js").write_text("console.log(1)", encoding="utf-8")
+    (dist / "favicon.svg").write_text("<svg/>", encoding="utf-8")
+    (tmp_path / "secret.txt").write_text("x", encoding="utf-8")
+    settings.frontend_dist = str(dist)
+    with TestClient(create_app(settings)) as c:
+        assert "AMIGO" in c.get("/").text
+        assert "AMIGO" in c.get("/s/abc").text  # SPA 경로는 index.html
+        assert c.get("/assets/app.js").text == "console.log(1)"
+        assert c.get("/favicon.svg").text == "<svg/>"
+        assert "AMIGO" in c.get("/..%2Fsecret.txt").text  # dist 밖 파일은 내주지 않음
+        missing = c.get("/api/nope")
+        assert missing.status_code == 404 and missing.json()["detail"]
+        assert c.get("/api/health").json()["status"] == "ok"
