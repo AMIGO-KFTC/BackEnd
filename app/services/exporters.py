@@ -103,6 +103,10 @@ def _plain(runs: list[Run]) -> str:
     return "".join(r.text for r in runs)
 
 
+def _display_width(text: str) -> int:
+    return sum(2 if "\u1100" <= ch <= "\uffdc" else 1 for ch in text)
+
+
 # --------------------------------------------------------------------------- Word
 KR_FONT = "맑은 고딕"
 
@@ -286,8 +290,9 @@ def to_pdf(markdown: str, *, title: str = "업무 인수인계서") -> bytes:
             story.append(Paragraph(_markup(block.runs), style, bulletText=bullet))
         elif block.kind == "table" and block.rows:
             cols = max(len(r) for r in block.rows)
-            lengths = [max(len(_plain(r[c])) if c < len(r) else 0 for r in block.rows) for c in range(cols)]
-            weights = [min(max(n, 4), 60) for n in lengths]
+            # 열 너비: 한글은 영문보다 두 배 넓으므로 표시 폭 기준으로 나누고, 짧은 열도 최소 4글자 폭은 보장한다
+            lengths = [max(_display_width(_plain(r[c])) if c < len(r) else 0 for r in block.rows) for c in range(cols)]
+            weights = [min(max(n, 9), 70) for n in lengths]
             total = sum(weights) or 1
             widths = [page_width * w / total for w in weights]
             data = []
