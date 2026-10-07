@@ -1,0 +1,13 @@
+# AMIGO BackEnd 의존성
+# 같은 폴더(작업 공간)에 RAG·AI 저장소를 받아 둔 경우 아래 두 줄로 함께 설치한다(BackEnd 폴더에서 실행).
+-e ../RAG
+-e ../AI
+fastapi>=0.115
+uvicorn[standard]>=0.30
+sqlalchemy>=2.0
+pydantic-settings>=2.3
+python-dotenv>=1.0
+python-multipart>=0.0.9
+python-docx>=1.1
+reportlab>=4.0
+mistune>=3.0
