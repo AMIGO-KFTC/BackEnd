@@ -71,6 +71,25 @@ class SessionSummary(BaseModel):
     updated_at: datetime
 
 
+class Usage(BaseModel):
+    """Claude API 사용량. cost_usd 는 모델 단가로 계산한 추정치(실제 청구액은 Anthropic Console 에서 확인)."""
+
+    requests: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    cost_usd: float = 0.0
+
+
+class UsageTotal(Usage):
+    """서버 전체(모든 세션) 누적 사용량과 예산."""
+
+    sessions: int = 0
+    budget_usd: float = 0.0  # 0 이면 제한 없음
+    remaining_usd: float | None = None
+
+
 class SessionDetail(SessionSummary):
     duties: str
     successor: str
@@ -84,6 +103,7 @@ class SessionDetail(SessionSummary):
     question_count: int
     sources: list[SourceOut]
     last_message_id: int
+    usage: Usage
 
 
 class StateOut(BaseModel):
@@ -91,6 +111,7 @@ class StateOut(BaseModel):
 
     session: SessionDetail
     messages: list[MessageOut]
+    usage_total: UsageTotal
 
 
 class ChatIn(BaseModel):

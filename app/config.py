@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     frontend_dist: str = ""  # 빌드된 FrontEnd/dist 경로를 주면 같은 서버에서 화면도 제공
     workers: int = 4
+    llm_budget_usd: float = 0.0  # Claude API 추정 비용 상한(USD, 모든 세션 합계). 0 이면 제한 없음
 
     @property
     def db_url(self) -> str:

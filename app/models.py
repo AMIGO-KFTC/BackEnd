@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -49,6 +49,13 @@ class HandoverSession(Base):
     pending_files_json: Mapped[str] = mapped_column(Text, default="[]")
     document_md: Mapped[str] = mapped_column(Text, default="")
     document_version: Mapped[int] = mapped_column(Integer, default=0)
+    # Claude API 사용량(이 세션에서 쓴 만큼 누적). 비용은 모델 단가로 계산한 추정치(USD)
+    llm_requests: Mapped[int] = mapped_column(Integer, default=0)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cache_read_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cache_write_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
 
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)

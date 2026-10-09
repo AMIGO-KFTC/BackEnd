@@ -8,7 +8,7 @@ from contextlib import contextmanager
 
 from amigo_agent import HandoverAgent
 from amigo_rag import KnowledgeBase, RAGSettings, supported_extensions
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import Settings
@@ -38,6 +38,7 @@ class Services:
                 cur.close()
 
         Base.metadata.create_all(self.engine)
+        _add_missing_columns(self.engine)
         self.SessionLocal = sessionmaker(bind=self.engine, expire_on_commit=False)
 
         self.allowed_extensions = supported_extensions()
@@ -74,3 +75,22 @@ class Services:
     def shutdown(self) -> None:
         self.runner.shutdown()
         self.engine.dispose()
+
+
+def _add_missing_columns(engine) -> None:
+    """예전 버전으로 만든 DB 에 새 컬럼(예: 사용량)을 추가한다. 데이터는 그대로 두는 가벼운 마이그레이션."""
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if not inspector.has_table(table.name):
+                continue
+            existing = {c["name"] for c in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in existing:
+                    continue
+                default = column.default.arg if column.default is not None and not callable(column.default.arg) else None
+                ddl = f"ALTER TABLE {table.name} ADD COLUMN {column.name} {column.type.compile(engine.dialect)}"
+                if default is not None:
+                    ddl += f" DEFAULT {default!r}" if isinstance(default, str) else f" DEFAULT {default}"
+                conn.execute(text(ddl))
+
