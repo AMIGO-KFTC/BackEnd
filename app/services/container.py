@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import Settings
 from ..models import Base
+from .checkpointer import DBCheckpointSaver, import_sqlite_checkpoints
 from .storage import FileStorage
 
 
@@ -43,13 +44,16 @@ class Services:
         self.allowed_extensions = supported_extensions()
         self.storage = FileStorage(settings.upload_dir, settings.max_upload_mb * 1024 * 1024, self.allowed_extensions)
         self.rag_settings = RAGSettings(data_dir=settings.rag_dir)
-        self.agent = HandoverAgent.with_sqlite(settings.checkpoint_path)
+        # 에이전트 대화 상태(어느 단계·어느 질문에서 멈췄는지)도 같은 DB 에 저장한다. 예전 SQLite 파일이 있으면 한 번 옮겨 온다.
+        import_sqlite_checkpoints(settings.checkpoint_path, self.SessionLocal)
+        self.agent = HandoverAgent(checkpointer=DBCheckpointSaver(self.SessionLocal))
         self._kbs: dict[str, KnowledgeBase] = {}
         self._kb_lock = threading.Lock()
 
         from .runner import JobRunner  # 순환 import 방지
 
         self.runner = JobRunner(self, workers=settings.workers)
+        self.runner.recover()
 
     @contextmanager
     def db(self) -> Iterator[Session]:

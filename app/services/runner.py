@@ -15,12 +15,15 @@ import logging
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from amigo_agent import AgentStateError, LLMError
 from amigo_rag import ParseError
 
-from ..models import HandoverSession, Message, Source, utcnow
+from sqlalchemy import select
+
+from ..models import FileBlob, HandoverSession, Message, Source, UnitTask, utcnow
 
 if TYPE_CHECKING:
     from .container import Services
@@ -29,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 AgentCall = Callable[[Callable[[dict[str, Any]], None]], Any]
 REANALYZE_STAGES = ("qna", "review")
+INTERRUPTED = "서버가 다시 시작되면서 진행 중이던 AI 작업이 멈췄습니다. '다시 시도'를 누르면 멈춘 곳부터 이어서 진행합니다."
 
 
 class SessionBusy(Exception):
@@ -50,6 +54,26 @@ class JobRunner:
 
     def shutdown(self) -> None:
         self.pool.shutdown(wait=False, cancel_futures=True)
+
+    def recover(self) -> None:
+        """서버가 작업 도중 꺼졌다 켜졌을 때 DB 에 남은 '처리 중' 상태를 정리한다.
+
+        - AI 작업 중(running)이던 세션: 다시 시도할 수 있는 오류로 바꾼다(재시도하면 마지막 체크포인트부터 이어 감).
+        - 적재 중(pending/processing)이던 자료: 다시 적재한다(디스크 사본이 없으면 DB 원본으로 복원).
+        """
+        with self.services.db() as db:
+            for row in db.scalars(select(HandoverSession).where(HandoverSession.status == "running")):
+                row.status, row.error, row.progress_message = "error", INTERRUPTED, ""
+                db.add(Message(session_id=row.id, role="system", kind="error", content=INTERRUPTED, meta_json=json.dumps({"retry": True})))
+            stuck: dict[str, list[str]] = {}
+            for source in db.scalars(select(Source).where(Source.status.in_(("pending", "processing")))):
+                source.status = "pending"
+                stuck.setdefault(source.session_id, []).append(source.id)
+            unit_sessions = set(db.scalars(select(UnitTask.session_id).where(UnitTask.session_id.in_(stuck)))) if stuck else set()
+            db.commit()
+        for session_id, source_ids in stuck.items():
+            auto = self.services.settings.auto_analyze and session_id in unit_sessions
+            self.run_ingest(session_id, source_ids, auto_analyze=auto)
 
     # ------------------------------------------------------------------ 에이전트 작업
     def run_agent(self, session_id: str, action: str, call: AgentCall, *, progress: str = "") -> None:
@@ -140,6 +164,7 @@ class JobRunner:
                 kind, path, url, name, link_type = source.kind, source.stored_path, source.url, source.name, source.link_type
             try:
                 if kind == "file":
+                    self._restore_file(source_id, path)
                     result = kb.add_file(path, source_id=source_id, display_name=name, metadata={"session_id": session_id})
                 else:
                     result = kb.add_url(url, source_id=source_id, link_type=link_type or None, metadata={"session_id": session_id})
@@ -184,6 +209,18 @@ class JobRunner:
                 self.start_analysis(session_id)
             except SessionBusy:
                 pass
+
+    def _restore_file(self, source_id: str, path: str) -> None:
+        """RAG 파싱용 디스크 사본이 없으면(서버 이전·디스크 정리) DB 에 저장한 원본으로 다시 만든다."""
+        target = Path(path)
+        if not path or target.is_file():
+            return
+        with self.services.db() as db:
+            blob = db.get(FileBlob, source_id)
+            if blob is None:
+                return
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(blob.content)
 
     def _queue_reanalysis(self, session_id: str, names: list[str]) -> None:
         """분석이 끝난 세션이면 새 자료를 에이전트에 알린다. AI 가 처리 중이면 끝난 뒤 처리하도록 쌓아 둔다."""

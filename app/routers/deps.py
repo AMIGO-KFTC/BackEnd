@@ -28,7 +28,7 @@ def get_db(services: Services = Depends(get_services)):
         yield db
 
 
-def _aware(value: datetime) -> datetime:
+def as_utc(value: datetime) -> datetime:
     """SQLite 는 시간대 정보를 버리고 저장하므로 읽은 값을 UTC 로 맞춘다."""
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
@@ -42,7 +42,7 @@ def optional_user(token: str = Depends(request_token), db: Session = Depends(get
     if not token:
         return None
     auth = db.get(AuthSession, token_hash(token))
-    if auth is None or _aware(auth.expires_at) <= utcnow():
+    if auth is None or as_utc(auth.expires_at) <= utcnow():
         return None
     return auth.user
 

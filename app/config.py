@@ -38,6 +38,7 @@ class Settings(BaseSettings):
 
     @property
     def checkpoint_path(self) -> Path:
+        """예전 버전이 에이전트 대화 상태를 따로 저장하던 SQLite 파일. 있으면 시작할 때 DB 로 옮긴다."""
         return self.data_dir / "agent_checkpoints.sqlite"
 
     @property

@@ -375,6 +375,10 @@ curl -s -b $JAR -X POST $API/unit-tasks/$TASK/files \
 
 # 5) 이후 질의응답·문서 생성은 아래 '세션 API' 의 5)~8) 을 같은 쿠키(-b $JAR)로 호출
 curl -s -b $JAR "$API/sessions/$SESSION/state?after=0" | python3 -m json.tool --no-ensure-ascii
+
+# 6) 다시 접속했을 때: 내 대화들이 어디까지 진행됐는지, 그리고 한 대화를 멈춘 곳 그대로 불러오기
+curl -s -b $JAR $API/conversations | python3 -m json.tool --no-ensure-ascii
+curl -s -b $JAR "$API/conversations/$SESSION?limit=50" | python3 -m json.tool --no-ensure-ascii
 ```
 
 ### 세션 API(로그인 없이 쓰는 기존 흐름)
@@ -442,6 +446,30 @@ AI 가 처리 중(`status` 가 `running`)일 때 6)·7) 을 보내면 `409` 가 
 문서 생성·내려받기는 아래 세션 API(`/api/sessions/{session_id}/state`, `/chat`, `/generate`, `/download` …)를 그대로 씁니다.
 로그인 계정이 만든 세션은 그 계정만 접근할 수 있습니다(로그인 안 하면 `401`, 다른 계정이면 `404`).
 
+### 대화 진행 상태 · 기록 불러오기
+
+로그인한 사용자가 각 대화(단위업무)를 **어디까지 진행했는지**와 **주고받은 기록**을 DB 에서 불러옵니다.
+다시 접속했거나 서버가 재시작된 뒤에도 이 API 하나로 화면을 멈춘 곳 그대로 되살릴 수 있습니다.
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/conversations` | 내 대화 목록과 각각의 진행 상태(최근 활동 순) |
+| GET | `/api/conversations/{session_id}?limit=50` | 대화 불러오기: 진행 상태 `progress` + 최근 메시지 `history` |
+| GET | `/api/conversations/{session_id}/messages?before=<ID>&limit=50` | 더 오래된 기록 이어서 불러오기(`has_more_before`) |
+| PUT | `/api/conversations/{session_id}/read` | 읽음 위치 저장 `{"message_id": 42}` (뒤로 돌아가지 않음) |
+
+`progress` 에 들어 있는 값:
+
+| 필드 | 뜻 |
+|---|---|
+| `stage`, `stage_number`, `stage_label` | 지금 단계(0 자료 준비 → 1 자료 분석 → 2 분석 요약 → 3 질의응답 → 4 문서 생성) |
+| `status` | `idle` / `running`(AI 처리 중) / `waiting`(사용자 입력 대기) / `error` |
+| `next_action`, `next_action_label` | 사용자가 할 일: `upload_files` · `processing_files` · `start_analysis` · `ai_working` · `answer_question` · `confirm_answer` · `reply` · `review_document` · `retry` 와 화면에 띄울 안내 문구 |
+| `current_question` | 답을 기다리는 AI 질문(또는 정리한 답변 확인 요청): 메시지 ID, 내용, 몇 번째 질문인지, 빠른 답장 |
+| `questions` | 질문한 수 · 답변 정리된 빈 항목 · 건너뛴 항목 · 남은 항목 · 전체 |
+| `message_count`, `last_message`, `last_activity_at` | 대화 규모와 마지막 활동 |
+| `last_read_message_id`, `unread_count` | 마지막으로 읽은 위치와 그 뒤 AI 가 보낸 새 메시지 수(AI 는 백그라운드로 일하므로 자리를 비운 사이 쌓인 메시지를 알 수 있음) |
+
 ### 세션 · 자료 · 대화 · 문서
 
 | 메서드 | 경로 | 설명 |
@@ -488,6 +516,9 @@ AI 가 처리 중(`status` 가 `running`)일 때 6)·7) 을 보내면 `409` 가 
 | `auth_sessions` | token_hash(토큰의 SHA-256, 원문은 저장 안 함), user_id, expires_at |
 | `unit_tasks` | id, user_id, **session_id**(단위업무별 인수인계 세션), name, description, sort_order |
 | `file_blobs` | source_id, content_type, sha256, **content(업로드 원본 바이트)** |
+| `conversation_reads` | session_id, user_id, last_read_message_id(읽음 위치), updated_at |
+| `agent_checkpoints` | thread_id(=세션 ID), checkpoint_id, parent_checkpoint_id, checkpoint(직렬화된 에이전트 상태), metadata |
+| `agent_checkpoint_writes` | thread_id, checkpoint_id, task_id, idx, channel, value(병렬 노드 결과·입력 대기 같은 중간 기록) |
 | `sessions` | id, user_id, 인계자 기초 정보, **stage, status, progress**, error, engine, slots_json, gaps_json, question_count, document_md, document_version |
 | `sources` | id(=RAG source_id), session_id, kind(file/link), name, stored_path/url, link_type, size, status(pending/processing/ready/failed), error, chunk_count, warnings |
 | `messages` | id(증가 커서), session_id, role(user/assistant/system), kind, content, meta_json, created_at |
@@ -497,8 +528,32 @@ AI 가 처리 중(`status` 가 `running`)일 때 6)·7) 을 보내면 `409` 가 
 단위업무별로 분리되므로, 단위업무가 늘어도 스키마 변경 없이 같은 쿼리로 조회·삭제할 수 있습니다.
 새 테이블은 서버를 시작할 때 자동으로 생기며, 기존 테이블은 바뀌지 않아 예전 `data/app.db` 를 그대로 쓸 수 있습니다.
 
-에이전트 내부 상태(LangGraph)는 `data/agent_checkpoints.sqlite` 에 따로 저장되어 서버를 재시작해도 대화를 이어 갑니다.
+### 대화가 어디까지 진행됐는지 저장하는 곳
+
+| 저장하는 것 | 테이블 |
+|---|---|
+| 주고받은 메시지(질문·답변·확인·안내) | `messages` |
+| 단계·상태·진행률, 장별 충족 현황, 빈 항목(질문 대상), 질문 수, 인수인계서 | `sessions` |
+| 에이전트가 멈춘 지점(현재 질문, 확인 대기 중인 답변, 다음에 실행할 노드) | `agent_checkpoints`, `agent_checkpoint_writes` |
+| 사용자가 어디까지 읽었는지 | `conversation_reads` |
+
+모두 같은 DB 에 있으므로 `AMIGO_DATABASE_URL` 을 PostgreSQL 로 바꾸면 대화 상태 전체가 PostgreSQL 에 저장됩니다.
+에이전트 체크포인트는 `app/services/checkpointer.py` 의 `DBCheckpointSaver` 가 SQLAlchemy 로 읽고 씁니다(LangGraph `SqliteSaver` 와 같은 저장 형식).
+
+- **예전 데이터 옮기기**: 이전 버전은 에이전트 상태를 `data/agent_checkpoints.sqlite` 에 따로 저장했습니다.
+  서버가 시작될 때 이 파일이 있으면 DB 로 한 번 옮기고 `agent_checkpoints.sqlite.imported` 로 이름을 바꿉니다.
+- **서버 재시작 복구**: 시작할 때 AI 작업 중(`running`)으로 남은 세션은 "다시 시도" 가능한 오류로 바꿉니다.
+  `POST /api/sessions/{id}/retry` 를 부르면 마지막 체크포인트부터 이어 갑니다.
+  적재 중이던 자료는 다시 적재하는데, 디스크의 파싱용 사본이 없으면 DB 에 저장된 원본(`file_blobs`)으로 되살립니다.
+- 지식베이스(ChromaDB)는 여전히 `data/rag` 에 있습니다. 서버를 옮길 때는 이 폴더도 함께 옮기거나, 자료를 다시 적재하세요.
+
 `AMIGO_DATABASE_URL` 로 PostgreSQL 을 쓸 수 있습니다(`pip install "psycopg[binary]"` 로 드라이버 추가 설치).
+PostgreSQL 로 테스트하려면 빈 테스트용 DB 를 만들고 `AMIGO_TEST_DATABASE_URL` 을 지정합니다(테스트마다 테이블을 지우고 다시 만듭니다).
+
+```bash
+createdb amigo_test
+AMIGO_TEST_DATABASE_URL=postgresql+psycopg://user:pw@localhost:5432/amigo_test .venv/bin/python -m pytest -q
+```
 
 ## 파일 처리와 보안
 
@@ -527,7 +582,7 @@ Word 는 '맑은 고딕'을 동아시아 글꼴로 지정하고, PDF 는 시스�
 | `ANTHROPIC_API_KEY` | | Claude API 키. 없으면 오프라인 엔진 |
 | `AMIGO_LLM_MODE` | `auto` | `auto`(키가 있으면 Claude) / `claude` / `offline` |
 | `AMIGO_LLM_MODEL` | `claude-opus-5-5` | 사용할 모델 |
-| `AMIGO_DATA_DIR` | `./data` | DB·업로드 파일·ChromaDB·대화 체크포인트 저장 폴더 |
+| `AMIGO_DATA_DIR` | `./data` | SQLite DB·업로드 파일 사본·ChromaDB 저장 폴더 |
 | `AMIGO_DATABASE_URL` | (SQLite) | 예: `postgresql+psycopg://user:pw@host:5432/amigo` |
 | `AMIGO_MAX_UPLOAD_MB` | `50` | 파일 하나의 최대 크기(MB) |
 | `AMIGO_MAX_FILES_PER_UPLOAD` | `20` | 한 번에 올릴 수 있는 파일 수 |
@@ -553,14 +608,15 @@ app/
   models.py         DB 모델: 사용자 · 프로필 · 로그인 세션 · 단위업무 · 세션 · 등록 자료(원본) · 대화 메시지
   schemas.py        API 요청/응답 스키마(FrontEnd 의 src/types.ts 와 짝)
   security.py       비밀번호 해시(scrypt), 로그인 토큰
-  routers/          auth(로그인) · profile(프로필) · unit_tasks(단위업무·업무파일)
+  routers/          auth(로그인) · profile(프로필) · unit_tasks(단위업무·업무파일) · conversations(진행 상태·기록 불러오기)
                     sessions(세션·폴링) · sources(업로드·링크) · chat(분석·대화·생성) · documents(조회·다운로드)
   services/
     container.py    DB · 파일 저장소 · 지식베이스(RAG) · 에이전트(AI) · 작업 실행기 조립
-    runner.py       백그라운드 작업 실행, 에이전트 이벤트 → DB 기록
+    runner.py       백그라운드 작업 실행, 에이전트 이벤트 → DB 기록, 재시작 복구
+    checkpointer.py 에이전트(LangGraph) 체크포인트를 DB 에 저장, 예전 SQLite 파일 가져오기
     storage.py      업로드 파일 안전 저장
     exporters.py    Markdown → Word / PDF
 scripts/            설치·실행 스크립트(sh, ps1)
 tests/              API 통합 테스트(오프라인 엔진), 설정 · 내보내기 테스트
-data/               실행하면 생김(app.db, uploads/, rag/, agent_checkpoints.sqlite) — git 제외
+data/               실행하면 생김(app.db, uploads/, rag/) — git 제외
 ```

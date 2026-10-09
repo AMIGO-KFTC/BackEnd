@@ -1,4 +1,4 @@
-"""DB 모델: 사용자 · 프로필 · 로그인 세션 · 단위업무 · 인수인계 세션 · 등록 자료(파일 원본) · 대화 메시지."""
+"""DB 모델: 사용자 · 프로필 · 로그인 세션 · 단위업무 · 인수인계 세션 · 등록 자료(파일 원본) · 대화 메시지 · 대화 진행 상태."""
 
 from __future__ import annotations
 
@@ -203,3 +203,47 @@ class FileBlob(Base):
     sha256: Mapped[str] = mapped_column(String(64))
     content: Mapped[bytes] = mapped_column(LargeBinary)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class ConversationRead(Base):
+    """사용자가 대화를 어디까지 읽었는지(읽음 위치). 다시 접속했을 때 그 사이 AI 가 보낸 새 메시지를 구분한다."""
+
+    __tablename__ = "conversation_reads"
+
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    last_read_message_id: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class AgentCheckpoint(Base):
+    """AI 에이전트(LangGraph) 체크포인트: 대화가 어느 단계·어느 질문에서 멈춰 있는지. thread_id = 세션 ID.
+
+    langgraph-checkpoint-sqlite 의 checkpoints 테이블과 같은 구조라 예전 SQLite 파일을 그대로 옮겨 올 수 있다.
+    """
+
+    __tablename__ = "agent_checkpoints"
+
+    thread_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    checkpoint_ns: Mapped[str] = mapped_column(String(), primary_key=True, default="")
+    checkpoint_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    parent_checkpoint_id: Mapped[str | None] = mapped_column(String(64), default=None)
+    type: Mapped[str | None] = mapped_column(String(50), default=None)
+    checkpoint: Mapped[bytes] = mapped_column(LargeBinary)
+    meta_json: Mapped[str] = mapped_column("metadata", Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class AgentCheckpointWrite(Base):
+    """체크포인트에 딸린 중간 기록(병렬 노드 결과, 사용자 입력 대기 등)."""
+
+    __tablename__ = "agent_checkpoint_writes"
+
+    thread_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    checkpoint_ns: Mapped[str] = mapped_column(String(), primary_key=True, default="")
+    checkpoint_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    task_id: Mapped[str] = mapped_column(String(), primary_key=True)
+    idx: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    channel: Mapped[str] = mapped_column(String())
+    type: Mapped[str | None] = mapped_column(String(50), default=None)
+    value: Mapped[bytes | None] = mapped_column(LargeBinary, default=None)

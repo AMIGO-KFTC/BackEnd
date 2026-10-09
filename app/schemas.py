@@ -222,3 +222,70 @@ class FileUploadResult(Result):
     session_id: str
     files: list[SourceOut]
     analysis_scheduled: bool = Field(description="적재가 끝나면 AI 분석(또는 재분석)이 자동으로 시작되는지")
+
+
+# ---------------------------------------------------------------- 대화 진행 상태 · 기록
+
+
+class CurrentQuestion(BaseModel):
+    message_id: int
+    kind: str = Field(description="question(질문) | confirm(정리한 답변 확인)")
+    content: str
+    gap_id: str = ""
+    slot: str = ""
+    number: int = 0
+    quick_replies: list[str] = []
+    asked_at: datetime
+
+
+class QuestionStats(BaseModel):
+    asked: int = Field(description="지금까지 던진 질문 수")
+    answered: int = Field(description="답변을 받아 정리한 빈 항목 수(확인 대기 포함)")
+    skipped: int
+    remaining: int = Field(description="아직 묻지 않은 빈 항목 수")
+    total: int = Field(description="분석에서 찾은 빈 항목 수")
+
+
+class ConversationProgress(BaseModel):
+    """사용자가 이 대화를 어디까지 진행했는지."""
+
+    session_id: str
+    task_id: str | None = Field(description="단위업무 ID(단위업무로 만든 대화일 때)")
+    title: str
+    stage: str = Field(description="setup → analyzing → summary → qna → composing → review")
+    stage_number: int = Field(description="화면의 STAGE 번호(0=자료 준비, 1~4)")
+    stage_label: str
+    status: str = Field(description="idle | running(AI 처리 중) | waiting(사용자 입력 대기) | error")
+    next_action: str = Field(
+        description="upload_files | processing_files | start_analysis | ai_working | answer_question | confirm_answer | review_document | retry"
+    )
+    next_action_label: str = Field(description="화면에 그대로 띄울 다음 할 일 안내")
+    progress_message: str
+    current_question: CurrentQuestion | None
+    questions: QuestionStats
+    file_count: int
+    document_version: int
+    message_count: int
+    last_message: MessageOut | None
+    last_read_message_id: int
+    unread_count: int = Field(description="마지막으로 읽은 뒤 AI·시스템이 보낸 메시지 수")
+    started_at: datetime
+    last_activity_at: datetime
+
+
+class ConversationsResult(Result):
+    conversations: list[ConversationProgress]
+
+
+class MessagesPage(BaseModel):
+    messages: list[MessageOut] = Field(description="오래된 것부터 순서대로")
+    has_more_before: bool = Field(description="이보다 오래된 메시지가 더 있는지(before=messages[0].id 로 이어서 조회)")
+
+
+class ConversationResult(Result):
+    progress: ConversationProgress
+    history: MessagesPage
+
+
+class ReadIn(BaseModel):
+    message_id: int = Field(ge=0, description="여기까지 읽음(이 ID 이하의 메시지)")

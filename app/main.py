@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import Settings, get_settings
-from .routers import auth, chat, documents, profile, sessions, sources, unit_tasks
+from .routers import auth, chat, conversations, documents, profile, sessions, sources, unit_tasks
 from .routers.deps import get_services, guard_session_owner
 from .services.container import Services
 
@@ -47,7 +47,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    for module in (auth, profile, unit_tasks):
+    for module in (auth, profile, unit_tasks, conversations):
         app.include_router(module.router)
     for module in (sessions, sources, chat, documents):  # 로그인 계정이 만든 세션은 그 계정만 접근
         app.include_router(module.router, dependencies=[Depends(guard_session_owner)])
