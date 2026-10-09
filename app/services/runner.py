@@ -224,6 +224,13 @@ class EventRecorder:
                         meta_json=json.dumps(event.get("meta") or {}, ensure_ascii=False),
                     )
                 )
+            elif kind == "usage":
+                row.llm_requests = (row.llm_requests or 0) + int(event.get("requests", 1))
+                row.input_tokens = (row.input_tokens or 0) + int(event.get("input_tokens", 0))
+                row.output_tokens = (row.output_tokens or 0) + int(event.get("output_tokens", 0))
+                row.cache_read_tokens = (row.cache_read_tokens or 0) + int(event.get("cache_read_input_tokens", 0))
+                row.cache_write_tokens = (row.cache_write_tokens or 0) + int(event.get("cache_creation_input_tokens", 0))
+                row.cost_usd = (row.cost_usd or 0.0) + float(event.get("cost_usd", 0.0))
             elif kind == "document":
                 row.document_md = event.get("markdown", "")
                 row.document_version = int(event.get("version", row.document_version))

@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import HandoverSession, Message
-from ..schemas import MessageOut, Progress, SessionDetail, SessionSummary, SourceOut
+from ..schemas import MessageOut, Progress, SessionDetail, SessionSummary, SourceOut, Usage, UsageTotal
 from ..services.container import Services
 
 
@@ -64,6 +64,35 @@ def detail(db: Session, row: HandoverSession) -> SessionDetail:
         question_count=row.question_count,
         sources=[SourceOut.model_validate(s) for s in row.sources],
         last_message_id=last_id,
+        usage=session_usage(row),
+    )
+
+
+def session_usage(row: HandoverSession) -> Usage:
+    return Usage(
+        requests=row.llm_requests or 0,
+        input_tokens=row.input_tokens or 0,
+        output_tokens=row.output_tokens or 0,
+        cache_read_tokens=row.cache_read_tokens or 0,
+        cache_write_tokens=row.cache_write_tokens or 0,
+        cost_usd=round(row.cost_usd or 0.0, 4),
+    )
+
+
+def usage_total(db: Session, budget_usd: float) -> UsageTotal:
+    s = HandoverSession
+    totals = db.execute(
+        select(
+            func.count(s.id), func.coalesce(func.sum(s.llm_requests), 0), func.coalesce(func.sum(s.input_tokens), 0),
+            func.coalesce(func.sum(s.output_tokens), 0), func.coalesce(func.sum(s.cache_read_tokens), 0),
+            func.coalesce(func.sum(s.cache_write_tokens), 0), func.coalesce(func.sum(s.cost_usd), 0.0),
+        )
+    ).one()
+    cost = round(float(totals[6]), 4)
+    return UsageTotal(
+        sessions=totals[0], requests=totals[1], input_tokens=totals[2], output_tokens=totals[3],
+        cache_read_tokens=totals[4], cache_write_tokens=totals[5], cost_usd=cost,
+        budget_usd=budget_usd, remaining_usd=round(max(budget_usd - cost, 0.0), 4) if budget_usd > 0 else None,
     )
 
 

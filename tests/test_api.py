@@ -181,3 +181,29 @@ def test_serves_built_frontend(tmp_path, settings):
         missing = c.get("/api/nope")
         assert missing.status_code == 404 and missing.json()["detail"]
         assert c.get("/api/health").json()["status"] == "ok"
+
+
+def test_usage_is_recorded_and_budget_blocks_new_ai_work(client, settings):
+    from app.services.runner import EventRecorder
+
+    sid = client.post("/api/sessions", json=PROFILE).json()["id"]
+    services = client.app.state.services
+    record = EventRecorder(services, sid)
+    record({"type": "usage", "requests": 1, "input_tokens": 100, "output_tokens": 2000, "cache_read_input_tokens": 5000,
+            "cache_creation_input_tokens": 300, "cost_usd": 0.0425})
+    record({"type": "usage", "requests": 1, "input_tokens": 10, "output_tokens": 500, "cost_usd": 0.01})
+
+    state = client.get(f"/api/sessions/{sid}/state").json()
+    usage = state["session"]["usage"]
+    assert usage == {"requests": 2, "input_tokens": 110, "output_tokens": 2500, "cache_read_tokens": 5000,
+                     "cache_write_tokens": 300, "cost_usd": 0.0525}
+    total = client.get("/api/usage").json()
+    assert total["cost_usd"] == 0.0525 and total["sessions"] == 1 and total["budget_usd"] == 0 and total["remaining_usd"] is None
+    assert state["usage_total"]["cost_usd"] == 0.0525
+
+    # 예산을 다 쓰면 Claude 엔진의 새 AI 작업을 막는다(오프라인 엔진은 비용이 없으므로 막지 않는다)
+    services.settings.llm_budget_usd = 0.05
+    assert client.get("/api/usage").json()["remaining_usd"] == 0
+    services.agent.describe = lambda: {"engine": "claude", "model": "claude-opus-5-5"}
+    blocked = client.post(f"/api/sessions/{sid}/analyze")
+    assert blocked.status_code == 429 and "예산" in blocked.json()["detail"]
