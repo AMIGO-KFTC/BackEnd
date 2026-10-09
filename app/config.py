@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     frontend_dist: str = ""  # 빌드된 FrontEnd/dist 경로를 주면 같은 서버에서 화면도 제공
     workers: int = 4
+    session_ttl_hours: int = 12  # 로그인 세션 유효 시간
+    allow_signup: bool = True  # 회원가입 API 허용(사내 계정을 미리 넣어 두는 경우 false)
+    cookie_secure: bool = False  # HTTPS 로 서비스할 때 true(로그인 쿠키에 Secure 속성)
+    auto_analyze: bool = True  # 단위업무 파일 적재가 끝나면 AI 분석을 자동으로 시작
 
     @property
     def db_url(self) -> str:

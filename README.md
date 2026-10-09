@@ -346,6 +346,39 @@ DB·업로드 파일이 `./data` 에 생기므로 **반드시 BackEnd 폴더에�
 ## API 직접 호출해 보기
 
 <http://localhost:8000/docs>(Swagger)에서 **Try it out** 버튼으로 호출해 볼 수 있습니다.
+로그인이 필요한 API 는 로그인 응답의 `token` 을 오른쪽 위 **Authorize** 에 넣으면 됩니다.
+
+### 로그인 → 프로필 → 단위업무 → 업무파일 업로드
+
+```bash
+API=http://localhost:8000/api
+JAR=/tmp/amigo-cookie   # 로그인 쿠키(amigo_session)를 저장할 파일
+
+# 1) 회원가입(처음 한 번) → 로그인: 성공하면 {"success": true, "message": "김민수님, 환영합니다.", "name": "김민수", "token": ...}
+curl -s -X POST $API/auth/signup -H "Content-Type: application/json" \
+  -d '{"login_id": "minsu", "password": "pass-1234", "name": "김민수"}'
+curl -s -c $JAR -X POST $API/auth/login -H "Content-Type: application/json" \
+  -d '{"login_id": "minsu", "password": "pass-1234"}'
+
+# 2) 프로필 입력(부서·직위·팀·이름)
+curl -s -b $JAR -X PUT $API/profile -H "Content-Type: application/json" \
+  -d '{"department": "디지털전략부", "team": "웹서비스팀", "position": "과장", "name": "김민수"}'
+
+# 3) 단위업무 입력(여러 건) → 응답의 tasks[].id 와 tasks[].session_id 를 기억
+curl -s -b $JAR -X POST $API/unit-tasks -H "Content-Type: application/json" \
+  -d '{"tasks": [{"name": "홈페이지 운영", "description": "기관 홈페이지 콘텐츠 관리"}, {"name": "웹 접근성 관리"}]}'
+TASK=<tasks[0].id>; SESSION=<tasks[0].session_id>
+
+# 4) 업무파일 업로드 → 원본을 DB 에 저장하고, 적재가 끝나면 AI 분석이 자동으로 시작됨
+curl -s -b $JAR -X POST $API/unit-tasks/$TASK/files \
+  -F "files=@../RAG/samples/업무정의서_웹서비스팀.pdf" -F "files=@../RAG/samples/주간회의록_2026-09-22.docx"
+
+# 5) 이후 질의응답·문서 생성은 아래 '세션 API' 의 5)~8) 을 같은 쿠키(-b $JAR)로 호출
+curl -s -b $JAR "$API/sessions/$SESSION/state?after=0" | python3 -m json.tool --no-ensure-ascii
+```
+
+### 세션 API(로그인 없이 쓰는 기존 흐름)
+
 터미널에서는 다음 순서로 화면과 같은 흐름을 재현할 수 있습니다(macOS/Linux, BackEnd 폴더에서 실행).
 
 ```bash
@@ -386,12 +419,37 @@ AI 가 처리 중(`status` 가 `running`)일 때 6)·7) 을 보내면 `409` 가 
 
 ## API
 
+### 로그인 · 프로필 · 단위업무 · 업무파일
+
+모든 응답에 `success`(true/false)와 화면에 그대로 띄울 `message` 가 들어 있습니다.
+실패(4xx)도 `{"success": false, "message": "아이디 또는 비밀번호가 올바르지 않습니다.", "detail": ...}` 모양으로 옵니다.
+`/api/auth/signup`·`/api/auth/login` 을 뺀 아래 API 는 로그인이 필요합니다(쿠키 `amigo_session` 또는 `Authorization: Bearer <token>`, 없으면 `401`).
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| POST | `/api/auth/signup` | 회원가입 `{"login_id", "password"(8자 이상), "name"}` (`AMIGO_ALLOW_SIGNUP=false` 면 `403`) |
+| POST | `/api/auth/login` | 로그인 `{"login_id", "password"}` → `{"success", "message", "name", "user", "token", "expires_at"}` + HttpOnly 쿠키. 실패하면 `401` |
+| POST | `/api/auth/logout` | 로그아웃(로그인 세션 삭제, 쿠키 제거) |
+| GET | `/api/auth/me` | 로그인한 사용자와 프로필 |
+| GET / PUT | `/api/profile` | 프로필 조회 / 입력·수정 `{"department", "position", "team", "name"}` |
+| POST | `/api/unit-tasks` | 단위업무 입력 `{"tasks": [{"name", "description"}]}` (프로필 먼저, 같은 이름은 `409`) |
+| GET | `/api/unit-tasks[/{task_id}]` | 단위업무 목록 / 상세(`session_id`, 단계, 상태, 파일 수, 문서 버전) |
+| PATCH / DELETE | `/api/unit-tasks/{task_id}` | 이름·설명 수정 / 삭제(파일·지식베이스·대화·문서 포함) |
+| POST | `/api/unit-tasks/{task_id}/files` | 업무파일 업로드(multipart `files`) → **원본 DB 저장** → 적재 → **AI 분석 자동 시작** |
+| GET | `/api/unit-tasks/{task_id}/files[/{file_id}]` | 파일 목록(처리 상태) / DB 에 저장된 원본 내려받기 |
+
+단위업무마다 인수인계 세션이 하나씩 만들어집니다(응답의 `session_id`). 업로드 뒤 진행 상황 폴링, AI 질문에 답하기,
+문서 생성·내려받기는 아래 세션 API(`/api/sessions/{session_id}/state`, `/chat`, `/generate`, `/download` …)를 그대로 씁니다.
+로그인 계정이 만든 세션은 그 계정만 접근할 수 있습니다(로그인 안 하면 `401`, 다른 계정이면 `404`).
+
+### 세션 · 자료 · 대화 · 문서
+
 | 메서드 | 경로 | 설명 |
 |---|---|---|
 | GET | `/api/health` | 서버 상태, AI 엔진(claude/offline), 모델 |
 | GET | `/api/config` | 업로드 제한·허용 확장자, 링크 유형, **인수인계서 양식(슬롯)**, 단계 정의 |
 | POST | `/api/sessions` | 세션 생성(인계자 기초 정보: 성명·소속·직책·담당 업무·인수자·인계일) |
-| GET | `/api/sessions` | 세션 목록(`X-User-Id` 헤더 기준) |
+| GET | `/api/sessions` | 세션 목록(로그인했으면 계정 기준, 아니면 `X-User-Id` 헤더 기준) |
 | GET | `/api/sessions/{id}` | 세션 상세: 단계·상태·진행률·슬롯 충족 현황·공백·자료 목록 |
 | GET | `/api/sessions/{id}/state?after=<메시지ID>` | **폴링용**: 세션 상세 + 커서 이후 새 메시지 |
 | GET | `/api/sessions/{id}/messages` | 전체 대화 기록 |
@@ -425,19 +483,33 @@ AI 가 처리 중(`status` 가 `running`)일 때 6)·7) 을 보내면 `409` 가 
 
 | 테이블 | 주요 컬럼 |
 |---|---|
+| `users` | id, login_id(소문자, 고유), password_hash(scrypt), name, last_login_at |
+| `user_profiles` | user_id, department(부서), team(팀), position(직위) — 이름은 `users.name` |
+| `auth_sessions` | token_hash(토큰의 SHA-256, 원문은 저장 안 함), user_id, expires_at |
+| `unit_tasks` | id, user_id, **session_id**(단위업무별 인수인계 세션), name, description, sort_order |
+| `file_blobs` | source_id, content_type, sha256, **content(업로드 원본 바이트)** |
 | `sessions` | id, user_id, 인계자 기초 정보, **stage, status, progress**, error, engine, slots_json, gaps_json, question_count, document_md, document_version |
 | `sources` | id(=RAG source_id), session_id, kind(file/link), name, stored_path/url, link_type, size, status(pending/processing/ready/failed), error, chunk_count, warnings |
 | `messages` | id(증가 커서), session_id, role(user/assistant/system), kind, content, meta_json, created_at |
+
+단위업무는 테이블을 새로 만들지 않고 `unit_tasks` 의 행 하나 + 전용 `sessions` 행 하나로 나눕니다.
+자료(`sources`·`file_blobs`), 대화(`messages`), 지식베이스(ChromaDB 컬렉션 `kb_<session_id>`), 인수인계서가 모두 이 `session_id` 로
+단위업무별로 분리되므로, 단위업무가 늘어도 스키마 변경 없이 같은 쿼리로 조회·삭제할 수 있습니다.
+새 테이블은 서버를 시작할 때 자동으로 생기며, 기존 테이블은 바뀌지 않아 예전 `data/app.db` 를 그대로 쓸 수 있습니다.
 
 에이전트 내부 상태(LangGraph)는 `data/agent_checkpoints.sqlite` 에 따로 저장되어 서버를 재시작해도 대화를 이어 갑니다.
 `AMIGO_DATABASE_URL` 로 PostgreSQL 을 쓸 수 있습니다(`pip install "psycopg[binary]"` 로 드라이버 추가 설치).
 
 ## 파일 처리와 보안
 
-- 저장 위치: `data/uploads/<세션ID>/<source_id><확장자>` — 사용자가 보낸 파일명은 **표시용으로만** 쓰고 경로에 쓰지 않습니다.
+- 업로드 원본은 DB(`file_blobs`)에 저장하고, RAG 파싱용 사본을 `data/uploads/<세션ID>/<source_id><확장자>` 에 둡니다.
+  사용자가 보낸 파일명은 **표시용으로만** 쓰고 경로에 쓰지 않습니다. 원본 내려받기는 항상 첨부파일(`attachment`, `nosniff`)로 보냅니다.
 - 확장자 허용 목록(RAG 가 읽을 수 있는 형식), 크기 제한(`AMIGO_MAX_UPLOAD_MB`), 빈 파일 거절을 **스트리밍 저장 중** 검사합니다.
 - 링크 수집은 RAG 의 SSRF 방지 검사(링크로컬·루프백 차단, 허용 도메인)를 거칩니다.
-- `X-User-Id` 는 프로토타입용 사용자 구분입니다. 실제 서비스에서는 사내 SSO/인증으로 교체해야 합니다.
+- 비밀번호는 scrypt(사용자별 salt)로 해시해 저장하고, 로그인 실패 메시지는 아이디 존재 여부와 관계없이 같습니다.
+- 로그인 세션 토큰은 HttpOnly·SameSite=Lax 쿠키로 내려가며 DB 에는 SHA-256 만 저장합니다. HTTPS 에서는 `AMIGO_COOKIE_SECURE=true` 로 설정하세요.
+- 로그인 없이 쓰는 세션 API 의 `X-User-Id` 는 프로토타입용 구분입니다. `user:` 로 시작하는 값은 무시해 로그인 계정 행세를 막습니다.
+- 아직 로그인 시도 횟수 제한(잠금)은 없습니다. 외부에 공개할 때는 앞단(프록시)에서 제한하거나 사내 SSO 로 교체하세요.
 
 ## 문서 내보내기
 
@@ -462,6 +534,10 @@ Word 는 '맑은 고딕'을 동아시아 글꼴로 지정하고, PDF 는 시스�
 | `AMIGO_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | 화면을 다른 주소에서 띄울 때 추가(쉼표 구분) |
 | `AMIGO_FRONTEND_DIST` | | 빌드된 화면 폴더(예: `../FrontEnd/dist`). 지정하면 8000 포트에서 화면도 제공 |
 | `AMIGO_WORKERS` | `4` | 백그라운드 작업 스레드 수 |
+| `AMIGO_SESSION_TTL_HOURS` | `12` | 로그인 세션 유효 시간 |
+| `AMIGO_ALLOW_SIGNUP` | `true` | 회원가입 API 허용 여부 |
+| `AMIGO_COOKIE_SECURE` | `false` | HTTPS 로 서비스할 때 `true`(로그인 쿠키 Secure) |
+| `AMIGO_AUTO_ANALYZE` | `true` | 단위업무 파일 적재가 끝나면 AI 분석 자동 시작 |
 | `AMIGO_PDF_FONT`, `AMIGO_PDF_FONT_BOLD` | (자동 탐색) | PDF 에 넣을 한글 글꼴(.ttf) 경로 |
 
 AI 에이전트 설정(`AMIGO_EFFORT_*`, `AMIGO_MAX_QUESTIONS` 등)은 [AI README](https://github.com/AMIGO-KFTC/AI#llm-설정-claude),
@@ -474,9 +550,11 @@ ChromaDB 위치는 BackEnd 가 `AMIGO_DATA_DIR/rag` 로 지정하므로 `AMIGO_R
 app/
   main.py           FastAPI 앱: 라우터 등록, /api/health · /api/config, 빌드된 화면 제공
   config.py         설정(AMIGO_ 환경변수, BackEnd/.env)
-  models.py         DB 모델: 세션 · 등록 자료 · 대화 메시지
+  models.py         DB 모델: 사용자 · 프로필 · 로그인 세션 · 단위업무 · 세션 · 등록 자료(원본) · 대화 메시지
   schemas.py        API 요청/응답 스키마(FrontEnd 의 src/types.ts 와 짝)
-  routers/          sessions(세션·폴링) · sources(업로드·링크) · chat(분석·대화·생성) · documents(조회·다운로드)
+  security.py       비밀번호 해시(scrypt), 로그인 토큰
+  routers/          auth(로그인) · profile(프로필) · unit_tasks(단위업무·업무파일)
+                    sessions(세션·폴링) · sources(업로드·링크) · chat(분석·대화·생성) · documents(조회·다운로드)
   services/
     container.py    DB · 파일 저장소 · 지식베이스(RAG) · 에이전트(AI) · 작업 실행기 조립
     runner.py       백그라운드 작업 실행, 에이전트 이벤트 → DB 기록

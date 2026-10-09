@@ -52,14 +52,10 @@ def analyze(session_id: str, db: Session = Depends(get_db), services: Services =
         raise HTTPException(status_code=409, detail="자료를 처리하는 중입니다. 처리가 끝나면 다시 눌러 주세요.")
     if not any(s.status == "ready" for s in row.sources):
         raise HTTPException(status_code=400, detail="분석할 자료가 없습니다. 파일이나 링크를 먼저 등록해 주세요.")
-    if row.stage != "setup":
-        db.add(Message(session_id=session_id, role="system", kind="info", content="등록된 자료로 분석을 처음부터 다시 시작합니다."))
-    row.stage = "analyzing"
-    row.slots_json, row.gaps_json, row.pending_files_json = "{}", "[]", "[]"
-    row.progress_current, row.progress_total = 0, 6
-    db.commit()
-    profile, kb, agent = row.profile(), services.kb(session_id), services.agent
-    _submit(services, session_id, "analyze", lambda h: agent.start(session_id, profile, kb, on_event=h), "자료를 분석하고 있어요.")
+    try:
+        services.runner.start_analysis(session_id, restart=row.stage != "setup")
+    except SessionBusy as exc:
+        raise HTTPException(status_code=409, detail=BUSY) from exc
     db.refresh(row)
     return detail(db, row)
 

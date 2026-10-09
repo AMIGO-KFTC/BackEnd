@@ -5,7 +5,112 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
+
+LOGIN_ID_PATTERN = r"^[A-Za-z0-9._@-]{3,50}$"
+
+
+class _Stripped(BaseModel):
+    """문자열 필드 앞뒤 공백 제거(비밀번호는 입력 그대로 비교하므로 제외)."""
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _strip(cls, value, info: ValidationInfo):
+        return value.strip() if isinstance(value, str) and info.field_name != "password" else value
+
+
+# ---------------------------------------------------------------- 로그인 · 프로필 · 단위업무
+
+
+class Result(BaseModel):
+    """성공/실패를 화면에 바로 띄울 수 있는 공통 응답. 실패(4xx)도 같은 모양으로 온다(success=false, message, detail)."""
+
+    success: bool = True
+    message: str = ""
+
+
+class SignupIn(_Stripped):
+    login_id: str = Field(pattern=LOGIN_ID_PATTERN, description="아이디(영문·숫자·._@- 3~50자)")
+    password: str = Field(min_length=8, max_length=128, description="비밀번호(8자 이상)")
+    name: str = Field(min_length=1, max_length=50, description="이름")
+
+
+class LoginIn(_Stripped):
+    login_id: str = Field(min_length=1, max_length=50, description="아이디")
+    password: str = Field(min_length=1, max_length=128, description="비밀번호")
+
+
+class ProfileIn(_Stripped):
+    department: str = Field(min_length=1, max_length=100, description="부서")
+    position: str = Field(min_length=1, max_length=50, description="직위")
+    team: str = Field(default="", max_length=100, description="팀")
+    name: str = Field(min_length=1, max_length=50, description="이름")
+
+
+class ProfileOut(BaseModel):
+    department: str
+    position: str
+    team: str
+    name: str
+
+
+class UserOut(BaseModel):
+    id: int
+    login_id: str
+    name: str
+    profile: ProfileOut | None
+
+
+class LoginOut(Result):
+    name: str
+    user: UserOut
+    token: str = Field(description="로그인 세션 토큰. 쿠키(amigo_session)로도 내려가며, 쿠키를 못 쓰는 클라이언트는 Authorization: Bearer 로 보낸다")
+    expires_at: datetime
+
+
+class MeOut(Result):
+    user: UserOut
+
+
+class ProfileResult(Result):
+    profile: ProfileOut
+
+
+class UnitTaskIn(_Stripped):
+    name: str = Field(min_length=1, max_length=100, description="단위업무명")
+    description: str = Field(default="", max_length=2000, description="업무 설명(선택)")
+
+
+class UnitTasksIn(BaseModel):
+    tasks: list[UnitTaskIn] = Field(min_length=1, max_length=30, description="등록할 단위업무 목록")
+
+
+class UnitTaskUpdate(_Stripped):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=2000)
+
+
+class UnitTaskOut(BaseModel):
+    id: str
+    name: str
+    description: str
+    sort_order: int
+    session_id: str = Field(description="이 단위업무의 인수인계 세션 ID. 질의응답·문서는 /api/sessions/{session_id}/... 를 그대로 쓴다")
+    stage: str
+    status: str
+    file_count: int
+    document_version: int
+    created_at: datetime
+
+
+class UnitTaskResult(Result):
+    task: UnitTaskOut
+
+
+class UnitTasksResult(Result):
+    tasks: list[UnitTaskOut]
+
+
 
 
 class SessionCreate(BaseModel):
@@ -110,3 +215,10 @@ class DocumentOut(BaseModel):
 class Accepted(BaseModel):
     ok: bool = True
     message: MessageOut | None = None
+
+
+class FileUploadResult(Result):
+    task_id: str
+    session_id: str
+    files: list[SourceOut]
+    analysis_scheduled: bool = Field(description="적재가 끝나면 AI 분석(또는 재분석)이 자동으로 시작되는지")

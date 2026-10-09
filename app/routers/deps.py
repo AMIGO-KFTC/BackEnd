@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import Depends, Header, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import HandoverSession, Message
-from ..schemas import MessageOut, Progress, SessionDetail, SessionSummary, SourceOut
+from ..models import AuthSession, HandoverSession, Message, User, utcnow
+from ..schemas import MessageOut, ProfileOut, Progress, SessionDetail, SessionSummary, SourceOut, UserOut
+from ..security import token_hash
 from ..services.container import Services
+
+COOKIE_NAME = "amigo_session"
+LOGIN_REQUIRED = "로그인이 필요합니다."
+bearer = HTTPBearer(auto_error=False, description="로그인 응답의 token (쿠키 amigo_session 으로도 인증됩니다)")
 
 
 def get_services(request: Request) -> Services:
@@ -20,9 +28,60 @@ def get_db(services: Services = Depends(get_services)):
         yield db
 
 
-def get_user_id(x_user_id: str | None = Header(default=None)) -> str:
-    """프로토타입용 사용자 구분(브라우저가 만든 임의 ID). 실제 서비스에서는 사내 SSO 로 교체한다."""
-    return (x_user_id or "").strip()[:64]
+def _aware(value: datetime) -> datetime:
+    """SQLite 는 시간대 정보를 버리고 저장하므로 읽은 값을 UTC 로 맞춘다."""
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def request_token(request: Request, credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> str:
+    """Authorization: Bearer 헤더 또는 로그인 쿠키에서 토큰을 꺼낸다."""
+    return credentials.credentials if credentials else request.cookies.get(COOKIE_NAME, "")
+
+
+def optional_user(token: str = Depends(request_token), db: Session = Depends(get_db)) -> User | None:
+    if not token:
+        return None
+    auth = db.get(AuthSession, token_hash(token))
+    if auth is None or _aware(auth.expires_at) <= utcnow():
+        return None
+    return auth.user
+
+
+def current_user(user: User | None = Depends(optional_user)) -> User:
+    if user is None:
+        raise HTTPException(status_code=401, detail=LOGIN_REQUIRED, headers={"WWW-Authenticate": "Bearer"})
+    return user
+
+
+def get_user_id(x_user_id: str | None = Header(default=None), user: User | None = Depends(optional_user)) -> str:
+    """세션 소유자 구분. 로그인했으면 계정 기준, 아니면 프로토타입용 X-User-Id(브라우저가 만든 임의 ID)."""
+    if user is not None:
+        return user.owner_key
+    value = (x_user_id or "").strip()[:64]
+    return "" if value.startswith("user:") else value  # 헤더로 로그인 사용자 행세를 못 하게
+
+
+def guard_session_owner(request: Request, db: Session = Depends(get_db), user: User | None = Depends(optional_user)) -> None:
+    """/api/sessions/{session_id}/... 공통 검사: 로그인 계정이 만든 세션은 그 계정만 쓸 수 있다."""
+    session_id = request.path_params.get("session_id")
+    row = db.get(HandoverSession, session_id) if session_id else None
+    if row is None or not row.user_id.startswith("user:"):
+        return
+    if user is None:
+        raise HTTPException(status_code=401, detail=LOGIN_REQUIRED, headers={"WWW-Authenticate": "Bearer"})
+    if user.owner_key != row.user_id:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+
+
+def profile_out(user: User) -> ProfileOut | None:
+    if user.profile is None:
+        return None
+    p = user.profile
+    return ProfileOut(department=p.department, position=p.position, team=p.team, name=user.name)
+
+
+def user_out(user: User) -> UserOut:
+    return UserOut(id=user.id, login_id=user.login_id, name=user.name, profile=profile_out(user))
 
 
 def load_session(db: Session, session_id: str) -> HandoverSession:

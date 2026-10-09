@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from urllib.parse import urlparse
 
@@ -9,13 +10,51 @@ from amigo_rag import detect_link_type
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
-from ..models import Message, Source
+from ..models import FileBlob, HandoverSession, Message, Source
 from ..schemas import LinksIn, SourceOut
 from ..services.container import Services
 from ..services.storage import UploadRejected, display_name, extension_of
 from .deps import get_db, get_services, load_session
 
 router = APIRouter(prefix="/api/sessions/{session_id}", tags=["sources"])
+
+
+async def store_uploads(db: Session, services: Services, row: HandoverSession, files: list[UploadFile]) -> tuple[list[Source], list[str]]:
+    """업로드 파일을 저장한다: 원본 바이트는 DB(file_blobs), 메타데이터는 sources, RAG 파싱용 사본은 디스크.
+
+    (만든 자료 목록, 적재할 source_id 목록) 을 돌려준다. 거절된 파일은 status=failed 로 남긴다.
+    """
+    if len(files) > services.settings.max_files_per_upload:
+        raise HTTPException(status_code=400, detail=f"한 번에 최대 {services.settings.max_files_per_upload}개까지 올릴 수 있습니다.")
+    created: list[Source] = []
+    accepted: list[str] = []
+    for upload in files:
+        source_id = uuid.uuid4().hex[:12]
+        name = display_name(upload.filename)
+        source = Source(id=source_id, session_id=row.id, kind="file", name=name, extension=extension_of(name), added_stage=row.stage)
+        blob: FileBlob | None = None
+        try:
+            path, name, size = await services.storage.save(row.id, source_id, upload)
+            content = path.read_bytes()
+            blob = FileBlob(
+                source_id=source_id,
+                content_type=(upload.content_type or "application/octet-stream")[:200],
+                sha256=hashlib.sha256(content).hexdigest(),
+                content=content,
+            )
+            source.stored_path, source.size, source.status = str(path), size, "pending"
+            accepted.append(source_id)
+        except UploadRejected as exc:
+            source.status, source.error = "failed", str(exc)
+        finally:
+            await upload.close()
+        db.add(source)
+        if blob is not None:
+            db.flush()  # sources 행이 먼저 있어야 file_blobs 외래키가 맞는다
+            db.add(blob)
+        created.append(source)
+    db.commit()
+    return created, accepted
 
 
 @router.post("/upload", response_model=list[SourceOut], status_code=status.HTTP_201_CREATED, summary="파일 업로드(여러 개)")
@@ -25,26 +64,7 @@ async def upload_files(
     db: Session = Depends(get_db),
     services: Services = Depends(get_services),
 ):
-    row = load_session(db, session_id)
-    if len(files) > services.settings.max_files_per_upload:
-        raise HTTPException(status_code=400, detail=f"한 번에 최대 {services.settings.max_files_per_upload}개까지 올릴 수 있습니다.")
-    created: list[Source] = []
-    accepted: list[str] = []
-    for upload in files:
-        source_id = uuid.uuid4().hex[:12]
-        name = display_name(upload.filename)
-        source = Source(id=source_id, session_id=session_id, kind="file", name=name, extension=extension_of(name), added_stage=row.stage)
-        try:
-            path, name, size = await services.storage.save(session_id, source_id, upload)
-            source.stored_path, source.size, source.status = str(path), size, "pending"
-            accepted.append(source_id)
-        except UploadRejected as exc:
-            source.status, source.error = "failed", str(exc)
-        finally:
-            await upload.close()
-        db.add(source)
-        created.append(source)
-    db.commit()
+    created, accepted = await store_uploads(db, services, load_session(db, session_id), files)
     services.runner.run_ingest(session_id, accepted)
     return [SourceOut.model_validate(s) for s in created]
 

@@ -12,14 +12,17 @@ from pathlib import Path
 
 from amigo_agent import SLOTS, STAGE_LABEL, STAGE_NUMBER
 from amigo_rag import FORMAT_LABELS
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import Settings, get_settings
-from .routers import chat, documents, sessions, sources
-from .routers.deps import get_services
+from .routers import auth, chat, documents, profile, sessions, sources, unit_tasks
+from .routers.deps import get_services, guard_session_owner
 from .services.container import Services
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -44,8 +47,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    for module in (sessions, sources, chat, documents):
+    for module in (auth, profile, unit_tasks):
         app.include_router(module.router)
+    for module in (sessions, sources, chat, documents):  # 로그인 계정이 만든 세션은 그 계정만 접근
+        app.include_router(module.router, dependencies=[Depends(guard_session_owner)])
+    _install_error_handlers(app)
 
     @app.get("/api/health", tags=["meta"], summary="서버 상태와 AI 엔진 정보")
     def health(services: Services = Depends(get_services)):
@@ -83,6 +89,43 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     _mount_frontend(app, settings)
     return app
+
+
+FIELD_LABELS = {
+    "login_id": "아이디",
+    "password": "비밀번호",
+    "name": "이름",
+    "department": "부서",
+    "position": "직위",
+    "team": "팀",
+    "tasks": "단위업무",
+    "tasks.name": "단위업무명",
+    "tasks.description": "업무 설명",
+    "description": "업무 설명",
+    "files": "파일",
+}
+
+
+def _install_error_handlers(app: FastAPI) -> None:
+    """오류 응답을 {"success": false, "message": "...", "detail": ...} 로 통일한다(기존 화면이 읽는 detail 은 유지)."""
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error(_request: Request, exc: StarletteHTTPException):
+        message = exc.detail if isinstance(exc.detail, str) else "요청을 처리할 수 없습니다."
+        body = {"success": False, "message": message, "detail": exc.detail}
+        return JSONResponse(body, status_code=exc.status_code, headers=getattr(exc, "headers", None))
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(_request: Request, exc: RequestValidationError):
+        errors = jsonable_encoder(exc.errors())
+        fields = []
+        for err in errors:
+            loc = [str(x) for x in err.get("loc", []) if x not in ("body", "query", "path") and not isinstance(x, int)]
+            label = (FIELD_LABELS.get(".".join(loc)) or FIELD_LABELS.get(loc[-1], loc[-1])) if loc else "요청"
+            if label not in fields:
+                fields.append(label)
+        message = f"입력값을 확인해 주세요: {', '.join(fields)}" if fields else "입력값을 확인해 주세요."
+        return JSONResponse({"success": False, "message": message, "detail": errors}, status_code=422)
 
 
 def _mount_frontend(app: FastAPI, settings: Settings) -> None:
