@@ -1,4 +1,4 @@
-"""DB 모델: 인수인계 세션 · 등록 자료 · 대화 메시지."""
+"""DB 모델: 사용자 · 프로필 · 로그인 세션 · 단위업무 · 인수인계 세션 · 등록 자료(파일 원본) · 대화 메시지 · 대화 진행 상태."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Float, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -16,6 +16,75 @@ def utcnow() -> datetime:
 
 class Base(DeclarativeBase):
     pass
+
+
+class User(Base):
+    """로그인 계정. 비밀번호는 해시만 저장한다(app/security.py)."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    login_id: Mapped[str] = mapped_column(String(50), unique=True)
+    password_hash: Mapped[str] = mapped_column(String(200))
+    name: Mapped[str] = mapped_column(String(50))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    last_login_at: Mapped[datetime | None] = mapped_column(default=None)
+
+    profile: Mapped[UserProfile | None] = relationship(back_populates="user", cascade="all, delete-orphan", uselist=False)
+
+    @property
+    def owner_key(self) -> str:
+        """인수인계 세션(sessions.user_id)에 기록하는 소유자 값. 브라우저가 보내는 X-User-Id 와 겹치지 않는 접두어를 쓴다."""
+        return f"user:{self.id}"
+
+
+class UserProfile(Base):
+    """인계자 프로필(부서·팀·직위). 이름은 users.name 에 둔다."""
+
+    __tablename__ = "user_profiles"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    department: Mapped[str] = mapped_column(String(100))
+    team: Mapped[str] = mapped_column(String(100), default="")
+    position: Mapped[str] = mapped_column(String(50))
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+    user: Mapped[User] = relationship(back_populates="profile")
+
+    @property
+    def organization(self) -> str:
+        return " ".join(x for x in (self.department, self.team) if x)
+
+
+class AuthSession(Base):
+    """로그인 세션. 토큰 원문은 쿠키/응답으로만 내보내고 DB 에는 SHA-256 만 저장한다."""
+
+    __tablename__ = "auth_sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column()
+
+    user: Mapped[User] = relationship()
+
+
+class UnitTask(Base):
+    """단위업무. 단위업무마다 인수인계 세션(sessions)을 하나씩 두어 자료·지식베이스·질의응답·인수인계서를 따로 관리한다."""
+
+    __tablename__ = "unit_tasks"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_unit_tasks_user_name"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), unique=True)
+    name: Mapped[str] = mapped_column(String(100))
+    description: Mapped[str] = mapped_column(Text, default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+    session: Mapped[HandoverSession] = relationship()
 
 
 class HandoverSession(Base):
@@ -129,3 +198,59 @@ class Message(Base):
     @property
     def meta(self) -> dict[str, Any]:
         return json.loads(self.meta_json or "{}")
+
+
+class FileBlob(Base):
+    """업로드 파일 원본(바이트). 목록 조회 때 큰 데이터를 읽지 않도록 sources 와 분리했다."""
+
+    __tablename__ = "file_blobs"
+
+    source_id: Mapped[str] = mapped_column(ForeignKey("sources.id", ondelete="CASCADE"), primary_key=True)
+    content_type: Mapped[str] = mapped_column(String(200), default="application/octet-stream")
+    sha256: Mapped[str] = mapped_column(String(64))
+    content: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class ConversationRead(Base):
+    """사용자가 대화를 어디까지 읽었는지(읽음 위치). 다시 접속했을 때 그 사이 AI 가 보낸 새 메시지를 구분한다."""
+
+    __tablename__ = "conversation_reads"
+
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    last_read_message_id: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class AgentCheckpoint(Base):
+    """AI 에이전트(LangGraph) 체크포인트: 대화가 어느 단계·어느 질문에서 멈춰 있는지. thread_id = 세션 ID.
+
+    langgraph-checkpoint-sqlite 의 checkpoints 테이블과 같은 구조라 예전 SQLite 파일을 그대로 옮겨 올 수 있다.
+    """
+
+    __tablename__ = "agent_checkpoints"
+
+    thread_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    checkpoint_ns: Mapped[str] = mapped_column(String(), primary_key=True, default="")
+    checkpoint_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    parent_checkpoint_id: Mapped[str | None] = mapped_column(String(64), default=None)
+    type: Mapped[str | None] = mapped_column(String(50), default=None)
+    checkpoint: Mapped[bytes] = mapped_column(LargeBinary)
+    meta_json: Mapped[str] = mapped_column("metadata", Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class AgentCheckpointWrite(Base):
+    """체크포인트에 딸린 중간 기록(병렬 노드 결과, 사용자 입력 대기 등)."""
+
+    __tablename__ = "agent_checkpoint_writes"
+
+    thread_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    checkpoint_ns: Mapped[str] = mapped_column(String(), primary_key=True, default="")
+    checkpoint_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    task_id: Mapped[str] = mapped_column(String(), primary_key=True)
+    idx: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    channel: Mapped[str] = mapped_column(String())
+    type: Mapped[str | None] = mapped_column(String(50), default=None)
+    value: Mapped[bytes | None] = mapped_column(LargeBinary, default=None)

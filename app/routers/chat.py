@@ -12,7 +12,7 @@ from ..models import HandoverSession, Message
 from ..schemas import Accepted, ChatIn, SessionDetail
 from ..services.container import Services
 from ..services.runner import SessionBusy
-from .deps import detail, get_db, get_services, load_session, message_out, usage_total
+from .deps import detail, get_db, get_services, load_session, message_out
 
 router = APIRouter(prefix="/api/sessions/{session_id}", tags=["agent"])
 
@@ -27,17 +27,17 @@ def _ensure_idle(services: Services, row: HandoverSession) -> None:
 
 def _ensure_budget(services: Services) -> None:
     """Claude 엔진이고 예산(AMIGO_LLM_BUDGET_USD)을 다 썼으면 새 AI 작업을 막는다(진행 중인 작업은 끝까지 간다)."""
-    budget = services.settings.llm_budget_usd
-    if budget <= 0 or services.agent.describe().get("engine") != "claude":
-        return
-    with services.db() as db:
-        spent = usage_total(db, budget).cost_usd
-    if spent >= budget:
-        raise HTTPException(
-            status_code=429,
-            detail=f"설정한 Claude API 예산(${budget:.2f})을 모두 썼어요(추정 ${spent:.2f}). "
-            "BackEnd/.env 의 AMIGO_LLM_BUDGET_USD 를 늘리거나 0(제한 없음)으로 바꾼 뒤 서버를 다시 시작해 주세요.",
-        )
+    exhausted = services.budget_exhausted()
+    if exhausted is not None:
+        spent, budget = exhausted
+        raise HTTPException(status_code=429, detail=budget_message(spent, budget))
+
+
+def budget_message(spent: float, budget: float) -> str:
+    return (
+        f"설정한 Claude API 예산(${budget:.2f})을 모두 썼어요(추정 ${spent:.2f}). "
+        "BackEnd/.env 의 AMIGO_LLM_BUDGET_USD 를 늘리거나 0(제한 없음)으로 바꾼 뒤 서버를 다시 시작해 주세요."
+    )
 
 
 def _ensure_started(row: HandoverSession) -> None:
@@ -68,14 +68,10 @@ def analyze(session_id: str, db: Session = Depends(get_db), services: Services =
         raise HTTPException(status_code=409, detail="자료를 처리하는 중입니다. 처리가 끝나면 다시 눌러 주세요.")
     if not any(s.status == "ready" for s in row.sources):
         raise HTTPException(status_code=400, detail="분석할 자료가 없습니다. 파일이나 링크를 먼저 등록해 주세요.")
-    if row.stage != "setup":
-        db.add(Message(session_id=session_id, role="system", kind="info", content="등록된 자료로 분석을 처음부터 다시 시작합니다."))
-    row.stage = "analyzing"
-    row.slots_json, row.gaps_json, row.pending_files_json = "{}", "[]", "[]"
-    row.progress_current, row.progress_total = 0, 6
-    db.commit()
-    profile, kb, agent = row.profile(), services.kb(session_id), services.agent
-    _submit(services, session_id, "analyze", lambda h: agent.start(session_id, profile, kb, on_event=h), "자료를 분석하고 있어요.")
+    try:
+        services.runner.start_analysis(session_id, restart=row.stage != "setup")
+    except SessionBusy as exc:
+        raise HTTPException(status_code=409, detail=BUSY) from exc
     db.refresh(row)
     return detail(db, row)
 

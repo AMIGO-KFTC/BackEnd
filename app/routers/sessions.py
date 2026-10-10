@@ -16,33 +16,58 @@ from .deps import detail, get_db, get_services, get_user_id, load_session, messa
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
 
-@router.post("", response_model=SessionDetail, status_code=status.HTTP_201_CREATED, summary="인수인계 세션 생성(기초 정보 등록)")
-def create_session(body: SessionCreate, db: Session = Depends(get_db), user_id: str = Depends(get_user_id)):
-    title = body.title or " ".join(x for x in (body.owner_name, body.position) if x) + " 인수인계"
+DEFAULT_WELCOME = (
+    "업무정의서·회의자료·메일·소스코드 같은 자료를 올리거나 컨플루언스/나누미 링크를 등록한 뒤 "
+    "'분석 시작'을 눌러 주세요."
+)
+
+
+def new_handover_session(
+    db: Session,
+    *,
+    user_id: str,
+    owner_name: str,
+    organization: str = "",
+    position: str = "",
+    duties: str = "",
+    successor: str = "",
+    handover_date: str = "",
+    title: str = "",
+    welcome: str = DEFAULT_WELCOME,
+) -> HandoverSession:
+    """인수인계 세션과 첫 안내 메시지를 만든다(커밋은 호출한 쪽에서)."""
     row = HandoverSession(
         id=uuid.uuid4().hex,
         user_id=user_id,
-        title=title,
-        owner_name=body.owner_name,
-        organization=body.organization,
-        position=body.position,
-        duties=body.duties,
-        successor=body.successor,
-        handover_date=body.handover_date,
+        title=title or " ".join(x for x in (owner_name, position) if x) + " 인수인계",
+        owner_name=owner_name,
+        organization=organization,
+        position=position,
+        duties=duties,
+        successor=successor,
+        handover_date=handover_date,
     )
     db.add(row)
-    db.add(
-        Message(
-            session_id=row.id,
-            role="assistant",
-            kind="info",
-            content=(
-                f"안녕하세요, {body.owner_name}님. 인수인계서 작성을 도와드릴 AMIGO 입니다.\n"
-                "업무정의서·회의자료·메일·소스코드 같은 자료를 올리거나 컨플루언스/나누미 링크를 등록한 뒤 "
-                "'분석 시작'을 눌러 주세요."
-            ),
-        )
-    )
+    content = f"안녕하세요, {owner_name}님. 인수인계서 작성을 도와드릴 AMIGO 입니다.\n{welcome}"
+    db.add(Message(session_id=row.id, role="assistant", kind="info", content=content))
+    return row
+
+
+def remove_handover_session(db: Session, services: Services, row: HandoverSession) -> None:
+    """세션과 업로드 파일·지식베이스·에이전트 상태를 함께 지운다."""
+    if services.runner.is_busy(row.id):
+        raise HTTPException(status_code=409, detail="AI가 처리 중이라 삭제할 수 없습니다. 잠시 후 다시 시도해 주세요.")
+    session_id = row.id
+    db.delete(row)
+    db.commit()
+    services.storage.remove_session(session_id)
+    services.drop_kb(session_id)
+    services.agent.delete(session_id)
+
+
+@router.post("", response_model=SessionDetail, status_code=status.HTTP_201_CREATED, summary="인수인계 세션 생성(기초 정보 등록)")
+def create_session(body: SessionCreate, db: Session = Depends(get_db), user_id: str = Depends(get_user_id)):
+    row = new_handover_session(db, user_id=user_id, **body.model_dump())
     db.commit()
     db.refresh(row)
     return detail(db, row)
@@ -53,6 +78,8 @@ def list_sessions(db: Session = Depends(get_db), user_id: str = Depends(get_user
     query = select(HandoverSession).order_by(HandoverSession.updated_at.desc()).limit(50)
     if user_id:
         query = query.where(HandoverSession.user_id == user_id)
+    else:  # 사용자 구분 없이 부르면 로그인 계정의 세션은 빼고 보여 준다
+        query = query.where(~HandoverSession.user_id.startswith("user:"))
     return [summary(row) for row in db.scalars(query)]
 
 
@@ -79,11 +106,4 @@ def list_messages(session_id: str, after: int = Query(default=0, ge=0), db: Sess
 
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT, summary="세션 삭제(자료·지식베이스·대화 상태 포함)")
 def delete_session(session_id: str, db: Session = Depends(get_db), services: Services = Depends(get_services)):
-    row = load_session(db, session_id)
-    if services.runner.is_busy(session_id):
-        raise HTTPException(status_code=409, detail="AI가 처리 중이라 삭제할 수 없습니다. 잠시 후 다시 시도해 주세요.")
-    db.delete(row)
-    db.commit()
-    services.storage.remove_session(session_id)
-    services.drop_kb(session_id)
-    services.agent.delete(session_id)
+    remove_handover_session(db, services, load_session(db, session_id))
