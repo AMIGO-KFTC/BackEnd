@@ -190,3 +190,25 @@ def test_other_users_cannot_access_tasks_or_sessions(client, sample_dir):
     assert client.get(f"/api/sessions/{sid}").status_code == 404
     assert client.post(f"/api/sessions/{sid}/chat", json={"text": "hi"}).status_code == 404
     assert client.get("/api/unit-tasks").json()["tasks"] == []
+
+
+def test_upload_does_not_start_ai_when_budget_is_used_up(client, sample_dir):
+    signup_and_login(client)
+    client.put("/api/profile", json=PROFILE)
+    task = client.post("/api/unit-tasks", json={"tasks": [{"name": "홈페이지 운영"}]}).json()["tasks"][0]
+    sid = task["session_id"]
+    services = client.app.state.services
+    from app.services.runner import EventRecorder
+
+    EventRecorder(services, sid)({"type": "usage", "requests": 1, "cost_usd": 0.06})
+    services.settings.llm_budget_usd = 0.05
+    services.agent.describe = lambda: {"engine": "claude", "model": "claude-haiku-4-5"}  # 비용이 드는 엔진인 척
+
+    pdf = sample_dir / "업무정의서_웹서비스팀.pdf"
+    body = client.post(f"/api/unit-tasks/{task['id']}/files", files=[("files", (pdf.name, pdf.read_bytes(), "application/pdf"))]).json()
+    assert body["success"] is True and body["analysis_scheduled"] is False and "예산" in body["message"]
+    state = wait_for(client, sid, idle)
+    assert state["session"]["stage"] == "setup" and state["session"]["status"] == "idle"  # Claude 작업을 시작하지 않음
+    progress = client.get(f"/api/conversations/{sid}").json()["progress"]
+    assert progress["next_action"] == "start_analysis"
+    assert client.post(f"/api/sessions/{sid}/analyze").status_code == 429

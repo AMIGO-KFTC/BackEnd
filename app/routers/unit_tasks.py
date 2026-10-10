@@ -147,7 +147,8 @@ async def upload_task_files(
     task = load_task(db, user, task_id)
     row = task.session
     created, accepted = await store_uploads(db, services, row, files)
-    auto = services.settings.auto_analyze
+    over_budget = services.budget_exhausted() is not None
+    auto = services.settings.auto_analyze and not over_budget
     services.runner.run_ingest(row.id, accepted, auto_analyze=auto)
     # 분석 전이면 자동 분석(설정), 분석 뒤면 새 자료로 재분석(기존 규칙)이 이어진다
     scheduled = bool(accepted) and (auto or row.stage != "setup")
@@ -159,7 +160,12 @@ async def upload_task_files(
         message = f"파일 {len(accepted)}개를 저장했습니다."
         if failed:
             message += f" {len(failed)}개는 저장하지 못했습니다({', '.join(s.name for s in failed)})."
-        message += " 자료 처리가 끝나면 AI 분석을 시작합니다." if scheduled else " '분석 시작'을 눌러 AI 분석을 요청해 주세요."
+        if scheduled:
+            message += " 자료 처리가 끝나면 AI 분석을 시작합니다."
+        elif over_budget:
+            message += " Claude API 예산을 모두 써서 AI 분석은 시작하지 않습니다."
+        else:
+            message += " '분석 시작'을 눌러 AI 분석을 요청해 주세요."
     return FileUploadResult(
         success=bool(accepted),
         message=message,

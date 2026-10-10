@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 AgentCall = Callable[[Callable[[dict[str, Any]], None]], Any]
 REANALYZE_STAGES = ("qna", "review")
+BUDGET_SKIPPED = "Claude API 예산을 모두 써서 자동 분석을 시작하지 않았어요. 예산을 늘린 뒤 '분석 시작'을 눌러 주세요."
 INTERRUPTED = "서버가 다시 시작되면서 진행 중이던 AI 작업이 멈췄습니다. '다시 시도'를 누르면 멈춘 곳부터 이어서 진행합니다."
 
 
@@ -205,6 +206,11 @@ class JobRunner:
                 statuses = {s.status for s in row.sources}
                 if statuses & {"pending", "processing"} or "ready" not in statuses:
                     return
+            if self.services.budget_exhausted() is not None:  # 예산을 다 썼으면 자동으로 Claude 작업을 시작하지 않는다
+                with self.services.db() as db:
+                    db.add(Message(session_id=session_id, role="system", kind="info", content=BUDGET_SKIPPED))
+                    db.commit()
+                return
             try:
                 self.start_analysis(session_id)
             except SessionBusy:

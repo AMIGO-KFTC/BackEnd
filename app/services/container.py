@@ -8,11 +8,11 @@ from contextlib import contextmanager
 
 from amigo_agent import HandoverAgent
 from amigo_rag import KnowledgeBase, RAGSettings, supported_extensions
-from sqlalchemy import create_engine, event, inspect, text
+from sqlalchemy import create_engine, event, func, inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import Settings
-from ..models import Base
+from ..models import Base, HandoverSession
 from .checkpointer import DBCheckpointSaver, import_sqlite_checkpoints
 from .storage import FileStorage
 
@@ -63,6 +63,15 @@ class Services:
             yield session
         finally:
             session.close()
+
+    def budget_exhausted(self) -> tuple[float, float] | None:
+        """Claude 엔진이고 예산(AMIGO_LLM_BUDGET_USD)을 다 썼으면 (추정 사용액, 예산), 아니면 None."""
+        budget = self.settings.llm_budget_usd
+        if budget <= 0 or self.agent.describe().get("engine") != "claude":
+            return None
+        with self.db() as db:
+            spent = round(float(db.scalar(select(func.coalesce(func.sum(HandoverSession.cost_usd), 0.0))) or 0.0), 4)
+        return (spent, budget) if spent >= budget else None
 
     def kb(self, session_id: str) -> KnowledgeBase:
         """세션별 지식베이스(ChromaDB 컬렉션 kb_<세션ID>)."""
