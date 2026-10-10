@@ -148,12 +148,15 @@ cd ..\FrontEnd; npm install
 |---|---|
 | API 키 없이 시연 (기본) | 그대로 두기 → 규칙 기반 오프라인 엔진 |
 | Claude 로 실제 분석 | `ANTHROPIC_API_KEY=sk-ant-...` |
+| 모델 바꾸기 | `AMIGO_LLM_MODEL=claude-haiku-4-5`(기본, 가장 저렴) / `claude-sonnet-5-5`(약 2배) / `claude-opus-5-5`(약 4배, 품질 가장 좋음) |
 | 키가 있어도 오프라인 엔진으로 | `AMIGO_LLM_MODE=offline` |
+| Claude API 비용 상한 두기 | `AMIGO_LLM_BUDGET_USD=10` (모든 작업 합계가 $10 를 넘으면 새 AI 작업을 막음, 0 이면 제한 없음) |
 | 컨플루언스 링크 수집 | `CONFLUENCE_BASE_URL` + `CONFLUENCE_PAT`(Server/DC), Cloud 는 `CONFLUENCE_EMAIL` + `CONFLUENCE_API_TOKEN` |
 | 나누미 링크 수집 | `NANUMI_BASE_URL` + `NANUMI_COOKIE` |
 
+- Claude 를 쓰면 작업 화면 오른쪽 위에 이번 작업의 **추정 비용·토큰 수**가, 시작 화면에 **전체 누적 사용량과 남은 예산**이 표시됩니다(배지에 마우스를 올리면 자세히). 추정치이므로 실제 청구액은 <https://platform.claude.com> 의 Usage 에서 확인하고, 그곳의 Limits 에서 월 사용 한도도 걸어 두세요.
 - `.env` 를 고친 뒤에는 백엔드를 껐다가 다시 켭니다(코드 변경 시 자동 재시작은 `.env` 변경을 감지하지 않습니다).
-- 지금 쓰는 엔진은 작업 화면 오른쪽 위 배지(`Claude · claude-opus-5-5` / `오프라인 규칙 엔진`)나
+- 지금 쓰는 엔진은 작업 화면 오른쪽 위 배지(`Claude · claude-haiku-4-5` / `오프라인 규칙 엔진`)나
   <http://localhost:8000/api/health> 의 `"engine"` 값(`claude` / `offline`)으로 확인합니다.
 - `.env` 는 `.gitignore` 에 들어 있어 커밋되지 않습니다. API 키를 `.env.example`·코드·채팅에 적지 마세요.
 - 오프라인 엔진은 표 머리글과 정규식으로 항목을 뽑는 **시연용**이라 문장이 거칠고 질문도 정해진 틀을 씁니다. 실제 품질은 Claude 로 확인하세요.
@@ -475,6 +478,7 @@ AI 가 처리 중(`status` 가 `running`)일 때 6)·7) 을 보내면 `409` 가 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
 | GET | `/api/health` | 서버 상태, AI 엔진(claude/offline), 모델 |
+| GET | `/api/usage` | Claude API 누적 사용량(요청 수·토큰·추정 비용)과 예산·남은 금액 |
 | GET | `/api/config` | 업로드 제한·허용 확장자, 링크 유형, **인수인계서 양식(슬롯)**, 단계 정의 |
 | POST | `/api/sessions` | 세션 생성(인계자 기초 정보: 성명·소속·직책·담당 업무·인수자·인계일) |
 | GET | `/api/sessions` | 세션 목록(로그인했으면 계정 기준, 아니면 `X-User-Id` 헤더 기준) |
@@ -581,7 +585,7 @@ Word 는 '맑은 고딕'을 동아시아 글꼴로 지정하고, PDF 는 시스�
 |---|---|---|
 | `ANTHROPIC_API_KEY` | | Claude API 키. 없으면 오프라인 엔진 |
 | `AMIGO_LLM_MODE` | `auto` | `auto`(키가 있으면 Claude) / `claude` / `offline` |
-| `AMIGO_LLM_MODEL` | `claude-opus-5-5` | 사용할 모델 |
+| `AMIGO_LLM_MODEL` | `claude-haiku-4-5` | 사용할 모델. 비용 순 `claude-haiku-4-5` < `claude-sonnet-5-5` < `claude-opus-5-5` |
 | `AMIGO_DATA_DIR` | `./data` | SQLite DB·업로드 파일 사본·ChromaDB 저장 폴더 |
 | `AMIGO_DATABASE_URL` | (SQLite) | 예: `postgresql+psycopg://user:pw@host:5432/amigo` |
 | `AMIGO_MAX_UPLOAD_MB` | `50` | 파일 하나의 최대 크기(MB) |
@@ -589,6 +593,7 @@ Word 는 '맑은 고딕'을 동아시아 글꼴로 지정하고, PDF 는 시스�
 | `AMIGO_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | 화면을 다른 주소에서 띄울 때 추가(쉼표 구분) |
 | `AMIGO_FRONTEND_DIST` | | 빌드된 화면 폴더(예: `../FrontEnd/dist`). 지정하면 8000 포트에서 화면도 제공 |
 | `AMIGO_WORKERS` | `4` | 백그라운드 작업 스레드 수 |
+| `AMIGO_LLM_BUDGET_USD` | `0` | Claude API 추정 비용 상한(USD, 모든 세션 합계). 넘으면 새 AI 작업을 `429` 로 거절. 0 이면 제한 없음 |
 | `AMIGO_SESSION_TTL_HOURS` | `12` | 로그인 세션 유효 시간 |
 | `AMIGO_ALLOW_SIGNUP` | `true` | 회원가입 API 허용 여부 |
 | `AMIGO_COOKIE_SECURE` | `false` | HTTPS 로 서비스할 때 `true`(로그인 쿠키 Secure) |

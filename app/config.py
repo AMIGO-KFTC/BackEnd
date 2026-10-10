@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     allow_signup: bool = True  # 회원가입 API 허용(사내 계정을 미리 넣어 두는 경우 false)
     cookie_secure: bool = False  # HTTPS 로 서비스할 때 true(로그인 쿠키에 Secure 속성)
     auto_analyze: bool = True  # 단위업무 파일 적재가 끝나면 AI 분석을 자동으로 시작
+    llm_budget_usd: float = 0.0  # Claude API 추정 비용 상한(USD, 모든 세션 합계). 0 이면 제한 없음
 
     @property
     def db_url(self) -> str:

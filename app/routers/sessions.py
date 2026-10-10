@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from ..models import HandoverSession, Message
 from ..schemas import MessageOut, SessionCreate, SessionDetail, SessionSummary, StateOut
 from ..services.container import Services
-from .deps import detail, get_db, get_services, get_user_id, load_session, message_out, summary
+from .deps import detail, get_db, get_services, get_user_id, load_session, message_out, summary, usage_total
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -89,12 +89,12 @@ def get_session(session_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{session_id}/state", response_model=StateOut, summary="폴링: 세션 상태 + after 이후의 새 메시지")
-def get_state(session_id: str, after: int = Query(default=0, ge=0), db: Session = Depends(get_db)):
+def get_state(session_id: str, after: int = Query(default=0, ge=0), db: Session = Depends(get_db), services: Services = Depends(get_services)):
     row = load_session(db, session_id)
     messages = db.scalars(
         select(Message).where(Message.session_id == session_id, Message.id > after).order_by(Message.id).limit(200)
     ).all()
-    return StateOut(session=detail(db, row), messages=[message_out(m) for m in messages])
+    return StateOut(session=detail(db, row), messages=[message_out(m) for m in messages], usage_total=usage_total(db, services.settings.llm_budget_usd))
 
 
 @router.get("/{session_id}/messages", response_model=list[MessageOut], summary="대화 기록")

@@ -22,7 +22,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import Settings, get_settings
 from .routers import auth, chat, conversations, documents, profile, sessions, sources, unit_tasks
-from .routers.deps import get_services, guard_session_owner
+from .routers.deps import get_services, guard_session_owner, usage_total
+from .schemas import UsageTotal
 from .services.container import Services
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -56,6 +57,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/health", tags=["meta"], summary="서버 상태와 AI 엔진 정보")
     def health(services: Services = Depends(get_services)):
         return {"status": "ok", "version": VERSION, **services.agent.describe()}
+
+    @app.get("/api/usage", tags=["meta"], response_model=UsageTotal, summary="Claude API 누적 사용량(모든 세션)과 예산")
+    def usage(services: Services = Depends(get_services)):
+        with services.db() as db:
+            return usage_total(db, settings.llm_budget_usd)
 
     @app.get("/api/config", tags=["meta"], summary="화면 구성용 설정(업로드 제한, 양식, 단계)")
     def config(services: Services = Depends(get_services)):

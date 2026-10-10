@@ -12,7 +12,7 @@ from ..models import HandoverSession, Message
 from ..schemas import Accepted, ChatIn, SessionDetail
 from ..services.container import Services
 from ..services.runner import SessionBusy
-from .deps import detail, get_db, get_services, load_session, message_out
+from .deps import detail, get_db, get_services, load_session, message_out, usage_total
 
 router = APIRouter(prefix="/api/sessions/{session_id}", tags=["agent"])
 
@@ -22,6 +22,22 @@ BUSY = "AI가 이전 요청을 처리하고 있어요. 잠시 후 다시 시도�
 def _ensure_idle(services: Services, row: HandoverSession) -> None:
     if services.runner.is_busy(row.id):
         raise HTTPException(status_code=409, detail=BUSY)
+    _ensure_budget(services)
+
+
+def _ensure_budget(services: Services) -> None:
+    """Claude 엔진이고 예산(AMIGO_LLM_BUDGET_USD)을 다 썼으면 새 AI 작업을 막는다(진행 중인 작업은 끝까지 간다)."""
+    budget = services.settings.llm_budget_usd
+    if budget <= 0 or services.agent.describe().get("engine") != "claude":
+        return
+    with services.db() as db:
+        spent = usage_total(db, budget).cost_usd
+    if spent >= budget:
+        raise HTTPException(
+            status_code=429,
+            detail=f"설정한 Claude API 예산(${budget:.2f})을 모두 썼어요(추정 ${spent:.2f}). "
+            "BackEnd/.env 의 AMIGO_LLM_BUDGET_USD 를 늘리거나 0(제한 없음)으로 바꾼 뒤 서버를 다시 시작해 주세요.",
+        )
 
 
 def _ensure_started(row: HandoverSession) -> None:
