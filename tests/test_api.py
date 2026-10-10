@@ -36,7 +36,7 @@ def test_full_flow_upload_analyze_chat_generate_download(client, sample_dir):
     state = wait_for(client, sid, lambda s: s["status"] == "waiting")
     session = state["session"]
     assert session["stage"] == "qna" and session["engine"] == "offline"
-    assert set(session["slots"]) == {"duties", "recurring", "projects", "contacts", "systems", "issues"}
+    assert set(session["slots"]) == {"overview", "stakeholders", "regular", "irregular", "systems", "dept_notes"}
     assert session["progress"]["current"] == session["progress"]["total"] == 6
     kinds = [m["kind"] for m in state["messages"]]
     assert kinds[0] == "info" and "summary" in kinds and kinds[-1] == "question"
