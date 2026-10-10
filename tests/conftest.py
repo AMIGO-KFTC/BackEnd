@@ -22,6 +22,8 @@ PROFILE = {
     "duties": "기관 홈페이지 운영 및 웹 접근성 관리",
     "successor": "이서연 대리",
     "handover_date": "2026-10-15",
+    "task_name": "홈페이지 운영",
+    "mode": "transfer",
 }
 
 

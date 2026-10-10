@@ -39,6 +39,8 @@ def summary(row: HandoverSession) -> SessionSummary:
         owner_name=row.owner_name,
         organization=row.organization,
         position=row.position,
+        mode=row.mode or "transfer",
+        task_name=row.task_name,
         stage=row.stage,
         status=row.status,
         document_version=row.document_version,

@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from amigo_agent import SLOTS, STAGE_LABEL, STAGE_NUMBER
+from amigo_agent.template import MODES
 from amigo_rag import FORMAT_LABELS
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -74,6 +75,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 {"key": key, "number": STAGE_NUMBER[key], "label": STAGE_LABEL[key]}
                 for key in ("analyzing", "summary", "qna", "composing", "review")
             ],
+            "modes": [{"key": key, "label": label} for key, label in MODES.items()],
             "slots": [
                 {
                     "key": s.key,
@@ -81,6 +83,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "description": s.description,
                     "fields": [{"key": f.key, "label": f.label} for f in s.fields],
                     "required": list(s.required),
+                    "modes": list(s.modes),
                 }
                 for s in SLOTS
             ],

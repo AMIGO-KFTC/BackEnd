@@ -16,8 +16,10 @@ class SessionCreate(BaseModel):
     successor: str = Field(default="", max_length=100, description="인수자")
     handover_date: str = Field(default="", max_length=20, description="인계 예정일(YYYY-MM-DD)")
     title: str = Field(default="", max_length=200)
+    mode: Literal["transfer", "leave"] = Field(default="transfer", description="인수인계 유형: transfer=인사발령, leave=장기휴가(Light)")
+    task_name: str = Field(default="", max_length=200, description="단위 업무명(업무 단위별로 인수인계서 1건)")
 
-    @field_validator("owner_name", "organization", "position", "duties", "successor", "handover_date", "title")
+    @field_validator("owner_name", "organization", "position", "duties", "successor", "handover_date", "title", "task_name")
     @classmethod
     def _strip(cls, value: str) -> str:
         return value.strip()
@@ -64,6 +66,8 @@ class SessionSummary(BaseModel):
     owner_name: str
     organization: str
     position: str
+    mode: str = "transfer"
+    task_name: str = ""
     stage: str
     status: str
     document_version: int
