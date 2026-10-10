@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+import time
 from pathlib import Path
 
 from conftest import idle, wait_for
@@ -34,6 +35,17 @@ def start_task(client, sample_dir, name="홈페이지 운영") -> dict:
 
 def progress(client, sid) -> dict:
     return client.get(f"/api/conversations/{sid}").json()["progress"]
+
+
+def wait_progress(client, sid, predicate, timeout: float = 60.0) -> dict:
+    """진행 상태가 조건을 만족할 때까지 기다린다(백그라운드 작업이 이어서 시작될 수 있는 경우)."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        p = progress(client, sid)
+        if predicate(p):
+            return p
+        time.sleep(0.1)
+    raise AssertionError(f"timeout: {p['status']} / {p['next_action']}")
 
 
 def test_progress_and_history_follow_the_conversation(client, sample_dir):
@@ -175,11 +187,13 @@ def test_restart_recovers_interrupted_work(settings, sample_dir):
         assert p["next_action"] == "retry" and "다시 시도" in p["next_action_label"]
 
         assert client.post(f"/api/sessions/{sid}/retry").status_code == 202
-        wait_for(client, sid, lambda s: s["status"] == "waiting")
-        p = client.get(f"/api/conversations/{sid}").json()["progress"]
-        # 다시 적재된 자료는 새 자료로 반영되고, 대화는 질문을 기다리는 상태로 돌아온다
-        assert p["next_action"] == "answer_question" and p["current_question"] is not None
-        assert p["status"] == "waiting" and p["questions"]["asked"] >= 1
+        # 재시도가 끝나면 다시 적재된 자료가 새 자료로 반영되고(AI 작업이 한 번 더 돈다), 대화는 질문을 기다리는 상태로 돌아온다
+        p = wait_progress(
+            client,
+            sid,
+            lambda p: p["status"] == "waiting" and p["next_action"] == "answer_question" and "새 자료" in p["last_message"]["content"],
+        )
+        assert p["current_question"] is not None and p["questions"]["asked"] >= 1
 
 
 def test_db_checkpointer_roundtrip_and_legacy_import(client, tmp_path):
