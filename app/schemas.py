@@ -76,9 +76,16 @@ class ProfileResult(Result):
     profile: ProfileOut
 
 
+HandoverMode = Literal["reassignment", "leave"]
+DATE_PATTERN = r"^(\d{4}-\d{2}-\d{2})?$"
+
+
 class UnitTaskIn(_Stripped):
     name: str = Field(min_length=1, max_length=100, description="단위업무명")
     description: str = Field(default="", max_length=2000, description="업무 설명(선택)")
+    mode: HandoverMode = Field(default="reassignment", description="인계 유형: reassignment=인사발령(6개 장), leave=장기휴가(Light, 4개 장)")
+    successor: str = Field(default="", max_length=100, description="인수자(선택)")
+    handover_date: str = Field(default="", pattern=DATE_PATTERN, description="인계 예정일 YYYY-MM-DD(선택)")
 
 
 class UnitTasksIn(BaseModel):
@@ -88,6 +95,9 @@ class UnitTasksIn(BaseModel):
 class UnitTaskUpdate(_Stripped):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     description: str | None = Field(default=None, max_length=2000)
+    mode: HandoverMode | None = None
+    successor: str | None = Field(default=None, max_length=100)
+    handover_date: str | None = Field(default=None, pattern=DATE_PATTERN)
 
 
 class UnitTaskOut(BaseModel):
@@ -96,6 +106,9 @@ class UnitTaskOut(BaseModel):
     description: str
     sort_order: int
     session_id: str = Field(description="이 단위업무의 인수인계 세션 ID. 질의응답·문서는 /api/sessions/{session_id}/... 를 그대로 쓴다")
+    mode: str = Field(description="인계 유형: reassignment(인사발령) | leave(장기휴가)")
+    successor: str
+    handover_date: str
     stage: str
     status: str
     file_count: int
@@ -314,3 +327,45 @@ class ConversationResult(Result):
 
 class ReadIn(BaseModel):
     message_id: int = Field(ge=0, description="여기까지 읽음(이 ID 이하의 메시지)")
+
+
+# ---------------------------------------------------------------- 근거 원문
+
+
+class ChunkOut(BaseModel):
+    chunk_id: str
+    index: int = Field(description="자료 안에서의 순서(0부터)")
+    text: str
+    citation: str = Field(description="사람이 읽는 출처 표기. 예: 업무정의서.pdf p.3")
+    page: int | None = None
+    sheet: str = ""
+    section: str = ""
+
+
+class ChunksOut(BaseModel):
+    source_id: str
+    source_name: str
+    chunks: list[ChunkOut]
+    total: int = Field(description="이 자료의 전체 조각 수")
+
+
+class CitationOut(BaseModel):
+    number: int = Field(description="인수인계서 본문의 [번호]")
+    label: str
+    quote: str = Field(description="근거로 쓴 문장 일부")
+    kind: Literal["document", "answer"] = Field(description="document=올린 자료, answer=인계자 답변")
+    source_id: str
+    source_name: str = Field(description="올린 자료 이름(답변이거나 자료가 삭제됐으면 빈 값)")
+    chunk_id: str
+    text: str = Field(description="근거가 나온 조각 원문(찾지 못하면 quote 와 같음)")
+    slot: str = Field(description="이 근거가 처음 쓰인 장(slot 키)")
+    item_title: str
+
+
+class CitationsOut(BaseModel):
+    document_version: int
+    citations: list[CitationOut]
+
+
+class ReindexResult(Result):
+    source_count: int = Field(description="다시 적재하는 자료 수")

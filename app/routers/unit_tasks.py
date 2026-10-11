@@ -43,6 +43,9 @@ def task_out(task: UnitTask) -> UnitTaskOut:
         description=task.description,
         sort_order=task.sort_order,
         session_id=row.id,
+        mode=row.mode or "reassignment",
+        successor=row.successor,
+        handover_date=row.handover_date,
         stage=row.stage,
         status=row.status,
         file_count=sum(1 for s in row.sources if s.kind == "file"),
@@ -88,6 +91,10 @@ def create_tasks(body: UnitTasksIn, user: User = Depends(current_user), db: Sess
             position=profile.position,
             duties=_duties(item.name, item.description),
             title=f"{item.name} 인수인계",
+            task_name=item.name,
+            mode=item.mode,
+            successor=item.successor,
+            handover_date=item.handover_date,
             welcome=_welcome(item.name),
         )
         task = UnitTask(id=uuid.uuid4().hex, user_id=user.id, session=row, name=item.name, description=item.description, sort_order=order)
@@ -108,7 +115,7 @@ def get_task(task_id: str, user: User = Depends(current_user), db: Session = Dep
     return UnitTaskResult(task=task_out(load_task(db, user, task_id)))
 
 
-@router.patch("/{task_id}", response_model=UnitTaskResult, summary="단위업무 이름·설명 수정")
+@router.patch("/{task_id}", response_model=UnitTaskResult, summary="단위업무 수정(이름·설명·인계 유형·인수자·인계일)")
 def update_task(task_id: str, body: UnitTaskUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
     task = load_task(db, user, task_id)
     if body.name is not None and body.name != task.name:
@@ -117,10 +124,22 @@ def update_task(task_id: str, body: UnitTaskUpdate, user: User = Depends(current
         task.name = body.name
     if body.description is not None:
         task.description = body.description
-    task.session.title = f"{task.name} 인수인계"
-    task.session.duties = _duties(task.name, task.description)
+    row = task.session
+    mode_changed = body.mode is not None and body.mode != (row.mode or "reassignment")
+    row.title = f"{task.name} 인수인계"
+    row.task_name = task.name
+    row.duties = _duties(task.name, task.description)
+    if body.mode is not None:
+        row.mode = body.mode
+    if body.successor is not None:
+        row.successor = body.successor
+    if body.handover_date is not None:
+        row.handover_date = body.handover_date
     db.commit()
-    return UnitTaskResult(message="단위업무를 수정했습니다.", task=task_out(task))
+    message = "단위업무를 수정했습니다."
+    if mode_changed and row.stage != "setup":  # 양식(장 구성)이 바뀌므로 다시 분석해야 문서에 반영된다
+        message += " 인계 유형이 바뀌었으니 '다시 분석'을 눌러야 새 양식으로 정리됩니다."
+    return UnitTaskResult(message=message, task=task_out(task))
 
 
 @router.delete("/{task_id}", response_model=Result, summary="단위업무 삭제(파일·지식베이스·대화·인수인계서 포함)")

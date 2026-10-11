@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import Settings, get_settings
-from .routers import auth, chat, conversations, documents, profile, sessions, sources, unit_tasks
+from .routers import auth, chat, conversations, documents, evidence, profile, sessions, sources, unit_tasks
 from .routers.deps import get_services, guard_session_owner, usage_total
 from .schemas import UsageTotal
 from .services.container import Services
@@ -38,6 +38,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.services = Services(settings)
+        if settings.mock_mode:
+            logging.getLogger(__name__).warning(
+                "가상 응답 모드(AMIGO_MOCK_MODE=true): 실제 파일 분석·AI 호출 없이 예시 데이터로 응답합니다. 데모 계정 demo / demo1234"
+            )
         yield
         app.state.services.shutdown()
 
@@ -49,15 +53,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    if settings.mock_mode:
+
+        @app.middleware("http")
+        async def mark_mock(request: Request, call_next):  # 응답이 가상 데이터임을 화면이 알 수 있게
+            response = await call_next(request)
+            response.headers["X-AMIGO-Mock"] = "true"
+            return response
+
     for module in (auth, profile, unit_tasks, conversations):
         app.include_router(module.router)
-    for module in (sessions, sources, chat, documents):  # 로그인 계정이 만든 세션은 그 계정만 접근
+    for module in (sessions, sources, chat, documents, evidence):  # 로그인 계정이 만든 세션은 그 계정만 접근
         app.include_router(module.router, dependencies=[Depends(guard_session_owner)])
     _install_error_handlers(app)
 
-    @app.get("/api/health", tags=["meta"], summary="서버 상태와 AI 엔진 정보")
+    @app.get("/api/health", tags=["meta"], summary="서버 상태와 연동 점검(DB · RAG · AI)")
     def health(services: Services = Depends(get_services)):
-        return {"status": "ok", "version": VERSION, **services.agent.describe()}
+        report = services.health()  # status 는 ok | degraded, checks 에 DB · RAG · AI 별 결과
+        return {"status": report["status"], "version": VERSION, "mock": settings.mock_mode, **services.agent.describe(), "checks": report["checks"]}
 
     @app.get("/api/usage", tags=["meta"], response_model=UsageTotal, summary="Claude API 누적 사용량(모든 세션)과 예산")
     def usage(services: Services = Depends(get_services)):
@@ -67,6 +80,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/config", tags=["meta"], summary="화면 구성용 설정(업로드 제한, 양식, 단계)")
     def config(services: Services = Depends(get_services)):
         return {
+            "mock": settings.mock_mode,
             "max_upload_mb": settings.max_upload_mb,
             "max_files_per_upload": settings.max_files_per_upload,
             "allowed_extensions": sorted(services.allowed_extensions),

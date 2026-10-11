@@ -45,13 +45,14 @@ class JobRunner:
         self.services = services
         self.pool = ThreadPoolExecutor(max_workers=max(2, workers), thread_name_prefix="amigo-job")
         self._active: set[str] = set()
+        self._reindexing: set[str] = set()  # 지식베이스를 다시 적재하는 중인 세션
         self._lock = threading.Lock()
         self._auto_lock = threading.Lock()
 
     # ------------------------------------------------------------------ 상태
     def is_busy(self, session_id: str) -> bool:
         with self._lock:
-            return session_id in self._active
+            return session_id in self._active or session_id in self._reindexing
 
     def shutdown(self) -> None:
         self.pool.shutdown(wait=False, cancel_futures=True)
@@ -148,11 +149,72 @@ class JobRunner:
             db.commit()
 
     # ------------------------------------------------------------------ 자료 적재
-    def run_ingest(self, session_id: str, source_ids: list[str], *, auto_analyze: bool = False) -> None:
+    def run_ingest(self, session_id: str, source_ids: list[str], *, auto_analyze: bool = False, notify: bool = True) -> None:
+        """자료를 지식베이스에 적재한다. notify=False 면 적재가 끝나도 에이전트에 '새 자료'를 알리지 않는다(재적재)."""
         if source_ids:
-            self.pool.submit(self._ingest_job, session_id, source_ids, auto_analyze)
+            self.pool.submit(self._ingest_job, session_id, source_ids, auto_analyze, notify)
 
-    def _ingest_job(self, session_id: str, source_ids: list[str], auto_analyze: bool = False) -> None:
+    def reindex(self, session_id: str, source_ids: list[str] | None = None, *, rebuild: bool | None = None) -> int:
+        """이미 처리된 자료를 원본(디스크 사본 또는 DB 원본)으로 다시 적재한다. 다시 적재하는 자료 수를 돌려준다.
+
+        - 같은 source_id 로 다시 넣으면 RAG 가 그 자료의 조각만 교체하므로, 질의응답 중 지식베이스에 쌓인 인계자 답변은 남는다.
+        - 임베딩 설정이 바뀐 지식베이스는 조각을 추가할 수 없으므로(RAG 가 거절) 컬렉션을 지우고 처음부터 만든다(rebuild).
+          rebuild=None 이면 지식베이스 상태를 보고 정한다.
+        - 다시 적재하는 동안 이 세션은 '처리 중'으로 보아 AI 작업 요청을 409 로 막는다(빈 지식베이스로 답하지 않도록).
+        - 링크 자료는 주소에서 다시 가져온다. 접속할 수 없으면 그 자료는 실패로 바뀐다(링크 원문은 따로 보관하지 않음).
+        """
+        if rebuild is None:
+            rebuild = self.services.kb_state(session_id)["state"] == "mismatch"
+        with self.services.db() as db:
+            query = select(Source).where(Source.session_id == session_id, Source.status == "ready")
+            if source_ids is not None and not rebuild:
+                query = query.where(Source.id.in_(source_ids))
+            sources = list(db.scalars(query))
+            for source in sources:
+                source.status = "pending"
+            db.commit()
+            ids = [s.id for s in sources]
+        if not ids:
+            return 0
+        with self._lock:
+            self._reindexing.add(session_id)
+        if rebuild:
+            self.services.drop_kb(session_id)
+        self.pool.submit(self._ingest_job, session_id, ids, False, False)
+        return len(ids)
+
+    def check_knowledge_bases(self) -> None:
+        """서버 시작 때: 처리 완료(ready)된 자료가 지식베이스에 없거나, 임베딩 설정이 바뀐 지식베이스를 다시 적재한다."""
+        with self.services.db() as db:
+            rows = db.execute(select(Source.session_id, Source.id).where(Source.status == "ready")).all()
+        by_session: dict[str, list[str]] = {}
+        for session_id, source_id in rows:
+            by_session.setdefault(session_id, []).append(source_id)
+        total = 0
+        for session_id, source_ids in by_session.items():
+            try:
+                state = self.services.kb_state(session_id)
+            except Exception:
+                logger.exception("knowledge base check failed: %s", session_id)
+                continue
+            if state["state"] == "mismatch":
+                total += self.reindex(session_id, rebuild=True)
+            else:
+                missing = [sid for sid in source_ids if sid not in state["source_ids"]]
+                if missing:
+                    total += self.reindex(session_id, missing, rebuild=False)
+        if total:
+            logger.warning("지식베이스에 없거나 임베딩이 바뀐 자료 %d건을 다시 적재합니다.", total)
+
+    def _ingest_job(self, session_id: str, source_ids: list[str], auto_analyze: bool = False, notify: bool = True) -> None:
+        try:
+            self._ingest(session_id, source_ids, auto_analyze, notify)
+        finally:
+            if not notify:  # 재적재가 끝나면 다시 AI 작업을 받을 수 있게
+                with self._lock:
+                    self._reindexing.discard(session_id)
+
+    def _ingest(self, session_id: str, source_ids: list[str], auto_analyze: bool, notify: bool) -> None:
         kb = self.services.kb(session_id)
         ready_names: list[str] = []
         for source_id in source_ids:
@@ -175,6 +237,8 @@ class JobRunner:
             except Exception as exc:
                 logger.exception("ingest failed: %s", source_id)
                 result, status, error = None, "failed", f"자료 처리 중 오류가 발생했습니다: {exc.__class__.__name__}"
+            if status == "failed" and not notify:
+                error = f"다시 적재하지 못했습니다: {error}"
             with self.services.db() as db:
                 source = db.get(Source, source_id)
                 if source is None:
@@ -189,7 +253,7 @@ class JobRunner:
                 db.commit()
                 if status == "ready":
                     ready_names.append(source.name)
-        if ready_names:
+        if ready_names and notify:
             self._queue_reanalysis(session_id, ready_names)
         if auto_analyze:
             self._auto_analyze(session_id)

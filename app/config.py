@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     allow_signup: bool = True  # 회원가입 API 허용(사내 계정을 미리 넣어 두는 경우 false)
     cookie_secure: bool = False  # HTTPS 로 서비스할 때 true(로그인 쿠키에 Secure 속성)
     auto_analyze: bool = True  # 단위업무 파일 적재가 끝나면 AI 분석을 자동으로 시작
+    # 가상 응답 모드: 실제 파일 분석·AI 호출 없이 예시 데이터로 응답(임시 DB, 서버를 켤 때마다 초기화)
+    mock_mode: bool = False
+    mock_delay: float = 0.4  # 가상 AI 의 단계별 대기 시간(초). 진행률 화면을 보려면 0 보다 크게
+    mock_seed: bool = True  # 데모 계정(demo / demo1234)과 예시 단위업무 3건을 미리 만든다
+    reindex_on_start: bool = True  # 시작할 때 지식베이스에서 빠진 자료를 찾아 다시 적재
     llm_budget_usd: float = 0.0  # Claude API 추정 비용 상한(USD, 모든 세션 합계). 0 이면 제한 없음
 
     @property
