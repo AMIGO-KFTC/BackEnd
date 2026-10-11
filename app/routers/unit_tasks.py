@@ -88,6 +88,7 @@ def create_tasks(body: UnitTasksIn, user: User = Depends(current_user), db: Sess
             position=profile.position,
             duties=_duties(item.name, item.description),
             title=f"{item.name} 인수인계",
+            task_name=item.name,
             welcome=_welcome(item.name),
         )
         task = UnitTask(id=uuid.uuid4().hex, user_id=user.id, session=row, name=item.name, description=item.description, sort_order=order)
@@ -118,6 +119,7 @@ def update_task(task_id: str, body: UnitTaskUpdate, user: User = Depends(current
     if body.description is not None:
         task.description = body.description
     task.session.title = f"{task.name} 인수인계"
+    task.session.task_name = task.name
     task.session.duties = _duties(task.name, task.description)
     db.commit()
     return UnitTaskResult(message="단위업무를 수정했습니다.", task=task_out(task))

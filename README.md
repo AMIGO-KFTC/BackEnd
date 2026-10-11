@@ -346,6 +346,37 @@ cd BackEnd; powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
 (Windows: `.venv\Scripts\python -m uvicorn app.main:app --reload --port 8000`)을 실행합니다.
 DB·업로드 파일이 `./data` 에 생기므로 **반드시 BackEnd 폴더에서** 실행하세요.
 
+## 가상 응답 모드 (FrontEnd 개발용)
+
+실제 자료 분석·AI 호출 없이 **미리 준비한 예시 데이터로 응답**하는 모드입니다. API 경로·요청·응답 형식은 실제와 똑같아서,
+FrontEnd 는 실제 데이터 연동 전에 이 모드에 붙여 개발하고, 나중에 설정만 끄면 실제 서버로 바뀝니다.
+
+```bash
+# macOS / Linux (BackEnd 폴더에서)
+AMIGO_MOCK_MODE=true ./scripts/dev.sh
+```
+
+```powershell
+# Windows (PowerShell, BackEnd 폴더에서)
+$env:AMIGO_MOCK_MODE = "true"; powershell -ExecutionPolicy Bypass -File scripts\dev.ps1
+```
+
+`.env` 에 `AMIGO_MOCK_MODE=true` 를 적어도 됩니다. 켜지면 서버 로그에 경고가 한 줄 나오고, 모든 응답에 `X-AMIGO-Mock: true` 헤더가,
+`/api/health`·`/api/config` 에 `"mock": true` 가 붙습니다.
+
+| 항목 | 가상 응답 모드에서 |
+|---|---|
+| 데모 계정 | `demo` / `demo1234` (김민수 · 디지털전략부 웹서비스팀 과장). 단위업무 3건이 미리 들어 있음: **문서 완성**(기관 홈페이지 운영) · **질문에 답할 차례**(웹 접근성 관리) · **자료 올리기 전**(유지보수 계약 관리) |
+| 회원가입·로그인·프로필·단위업무 | 실제와 같이 동작(검증 규칙·오류 코드 동일). 데이터는 임시 DB 에만 저장 |
+| 파일 업로드 | 형식·크기 검사는 실제와 같고, 내용은 읽지 않고 '읽은 것처럼' 처리. 파일 이름에 `실패` 또는 `fail` 이 들어 있으면 처리 실패(`failed`)를 흉내 냄 |
+| AI 분석·질의응답 | 예시 시나리오(기관 홈페이지 운영)로 장별 진행률 → 분석 요약 → 질문 6개 → 답변 정리 확인 → 문서 생성까지 실제와 같은 메시지·단계로 진행. 답변·고쳐 말하기·"네"·건너뛰기·지금 문서 생성·검토 의견(새 버전) 모두 반응 |
+| 인수인계서 | 실제 양식 렌더러로 만든 문서(관계도·근거 번호 포함), PDF·Word·Markdown 내려받기 가능 |
+| 저장 | 서버를 켤 때마다 임시 폴더에 새 DB 를 만들고 끌 때 지움. 실제 `data/` 폴더와 `AMIGO_DATABASE_URL` 은 건드리지 않음 |
+
+- 단계 사이 대기 시간은 `AMIGO_MOCK_DELAY`(기본 0.4초)로 바꿉니다. 0 이면 바로 응답합니다.
+- 빈 상태로 시작하려면 `AMIGO_MOCK_SEED=false` (데모 계정 없음, 회원가입부터).
+- 모든 단위업무가 같은 예시 시나리오를 씁니다(업무 소개의 업무명만 단위업무 이름으로 바뀜).
+
 ## API 직접 호출해 보기
 
 <http://localhost:8000/docs>(Swagger)에서 **Try it out** 버튼으로 호출해 볼 수 있습니다.
@@ -593,6 +624,9 @@ Word 는 '맑은 고딕'을 동아시아 글꼴로 지정하고, PDF 는 시스�
 | `AMIGO_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | 화면을 다른 주소에서 띄울 때 추가(쉼표 구분) |
 | `AMIGO_FRONTEND_DIST` | | 빌드된 화면 폴더(예: `../FrontEnd/dist`). 지정하면 8000 포트에서 화면도 제공 |
 | `AMIGO_WORKERS` | `4` | 백그라운드 작업 스레드 수 |
+| `AMIGO_MOCK_MODE` | `false` | `true` 면 [가상 응답 모드](#가상-응답-모드-frontend-개발용): 예시 데이터로 응답, 임시 DB |
+| `AMIGO_MOCK_DELAY` | `0.4` | 가상 응답 모드에서 AI 단계 사이 대기 시간(초) |
+| `AMIGO_MOCK_SEED` | `true` | 가상 응답 모드에서 데모 계정·예시 단위업무를 미리 만들지 |
 | `AMIGO_LLM_BUDGET_USD` | `0` | Claude API 추정 비용 상한(USD, 모든 세션 합계). 넘으면 새 AI 작업을 `429` 로 거절. 0 이면 제한 없음 |
 | `AMIGO_SESSION_TTL_HOURS` | `12` | 로그인 세션 유효 시간 |
 | `AMIGO_ALLOW_SIGNUP` | `true` | 회원가입 API 허용 여부 |
@@ -613,6 +647,7 @@ app/
   models.py         DB 모델: 사용자 · 프로필 · 로그인 세션 · 단위업무 · 세션 · 등록 자료(원본) · 대화 메시지
   schemas.py        API 요청/응답 스키마(FrontEnd 의 src/types.ts 와 짝)
   security.py       비밀번호 해시(scrypt), 로그인 토큰
+  mock/             가상 응답 모드: 예시 시나리오(scenario) · 가짜 AI(agent) · 가짜 지식베이스(kb) · 데모 데이터(seed)
   routers/          auth(로그인) · profile(프로필) · unit_tasks(단위업무·업무파일) · conversations(진행 상태·기록 불러오기)
                     sessions(세션·폴링) · sources(업로드·링크) · chat(분석·대화·생성) · documents(조회·다운로드)
   services/

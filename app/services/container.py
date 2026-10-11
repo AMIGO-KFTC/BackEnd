@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import shutil
+import tempfile
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 
 from amigo_agent import HandoverAgent
 from amigo_rag import KnowledgeBase, RAGSettings, supported_extensions
@@ -19,6 +22,10 @@ from .storage import FileStorage
 
 class Services:
     def __init__(self, settings: Settings) -> None:
+        self.mock_dir: Path | None = None
+        if settings.mock_mode:  # 가상 응답 모드는 실제 DB·업로드 폴더를 건드리지 않도록 임시 폴더에서 새로 시작한다
+            self.mock_dir = Path(tempfile.mkdtemp(prefix="amigo-mock-"))
+            settings = settings.model_copy(update={"data_dir": self.mock_dir, "database_url": ""})
         self.settings = settings
         settings.data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -45,9 +52,14 @@ class Services:
         self.allowed_extensions = supported_extensions()
         self.storage = FileStorage(settings.upload_dir, settings.max_upload_mb * 1024 * 1024, self.allowed_extensions)
         self.rag_settings = RAGSettings(data_dir=settings.rag_dir)
-        # 에이전트 대화 상태(어느 단계·어느 질문에서 멈췄는지)도 같은 DB 에 저장한다. 예전 SQLite 파일이 있으면 한 번 옮겨 온다.
-        import_sqlite_checkpoints(settings.checkpoint_path, self.SessionLocal)
-        self.agent = HandoverAgent(checkpointer=DBCheckpointSaver(self.SessionLocal))
+        if settings.mock_mode:
+            from ..mock.agent import MockAgent
+
+            self.agent = MockAgent(delay=settings.mock_delay)
+        else:
+            # 에이전트 대화 상태(어느 단계·어느 질문에서 멈췄는지)도 같은 DB 에 저장한다. 예전 SQLite 파일이 있으면 한 번 옮겨 온다.
+            import_sqlite_checkpoints(settings.checkpoint_path, self.SessionLocal)
+            self.agent = HandoverAgent(checkpointer=DBCheckpointSaver(self.SessionLocal))
         self._kbs: dict[str, KnowledgeBase] = {}
         self._kb_lock = threading.Lock()
 
@@ -55,6 +67,10 @@ class Services:
 
         self.runner = JobRunner(self, workers=settings.workers)
         self.runner.recover()
+        if settings.mock_mode and settings.mock_seed:
+            from ..mock.seed import seed_demo
+
+            seed_demo(self)
 
     @contextmanager
     def db(self) -> Iterator[Session]:
@@ -74,10 +90,15 @@ class Services:
         return (spent, budget) if spent >= budget else None
 
     def kb(self, session_id: str) -> KnowledgeBase:
-        """세션별 지식베이스(ChromaDB 컬렉션 kb_<세션ID>)."""
+        """세션별 지식베이스(ChromaDB 컬렉션 kb_<세션ID>). 가상 응답 모드면 파싱하지 않는 가짜 지식베이스."""
         with self._kb_lock:
             if session_id not in self._kbs:
-                self._kbs[session_id] = KnowledgeBase(session_id, settings=self.rag_settings)
+                if self.settings.mock_mode:
+                    from ..mock.kb import MockKnowledgeBase
+
+                    self._kbs[session_id] = MockKnowledgeBase(session_id, delay=self.settings.mock_delay)
+                else:
+                    self._kbs[session_id] = KnowledgeBase(session_id, settings=self.rag_settings)
             return self._kbs[session_id]
 
     def drop_kb(self, session_id: str) -> None:
@@ -88,6 +109,8 @@ class Services:
     def shutdown(self) -> None:
         self.runner.shutdown()
         self.engine.dispose()
+        if self.mock_dir is not None:
+            shutil.rmtree(self.mock_dir, ignore_errors=True)
 
 
 def _add_missing_columns(engine) -> None:
