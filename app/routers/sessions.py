@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
 @router.post("", response_model=SessionDetail, status_code=status.HTTP_201_CREATED, summary="인수인계 세션 생성(기초 정보 등록)")
 def create_session(body: SessionCreate, db: Session = Depends(get_db), user_id: str = Depends(get_user_id)):
-    title = body.title or " ".join(x for x in (body.owner_name, body.position) if x) + " 인수인계"
+    title = body.title or (f"{body.owner_name} · {body.task_name} 인수인계" if body.task_name else " ".join(x for x in (body.owner_name, body.position) if x) + " 인수인계")
     row = HandoverSession(
         id=uuid.uuid4().hex,
         user_id=user_id,
@@ -29,6 +29,8 @@ def create_session(body: SessionCreate, db: Session = Depends(get_db), user_id: 
         duties=body.duties,
         successor=body.successor,
         handover_date=body.handover_date,
+        mode=body.mode,
+        task_name=body.task_name,
     )
     db.add(row)
     db.add(
