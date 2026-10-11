@@ -34,9 +34,21 @@ def sample_dir(tmp_path_factory) -> Path:
     return out
 
 
+# PostgreSQL 로도 돌려 보려면: AMIGO_TEST_DATABASE_URL=postgresql+psycopg://user:pw@localhost/amigo_test pytest
+TEST_DATABASE_URL = os.environ.get("AMIGO_TEST_DATABASE_URL", "")
+
+
 @pytest.fixture()
 def settings(tmp_path) -> Settings:
-    return Settings(data_dir=tmp_path / "data", max_upload_mb=5, workers=4)
+    if TEST_DATABASE_URL:  # 테스트마다 빈 DB 에서 시작
+        from sqlalchemy import create_engine
+
+        from app.models import Base
+
+        engine = create_engine(TEST_DATABASE_URL)
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+    return Settings(data_dir=tmp_path / "data", database_url=TEST_DATABASE_URL, max_upload_mb=5, workers=4)
 
 
 @pytest.fixture()
