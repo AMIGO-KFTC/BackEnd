@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import Settings, get_settings
-from .routers import auth, chat, conversations, documents, profile, sessions, sources, unit_tasks
+from .routers import auth, chat, conversations, documents, evidence, profile, sessions, sources, unit_tasks
 from .routers.deps import get_services, guard_session_owner, usage_total
 from .schemas import UsageTotal
 from .services.container import Services
@@ -63,13 +63,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     for module in (auth, profile, unit_tasks, conversations):
         app.include_router(module.router)
-    for module in (sessions, sources, chat, documents):  # 로그인 계정이 만든 세션은 그 계정만 접근
+    for module in (sessions, sources, chat, documents, evidence):  # 로그인 계정이 만든 세션은 그 계정만 접근
         app.include_router(module.router, dependencies=[Depends(guard_session_owner)])
     _install_error_handlers(app)
 
-    @app.get("/api/health", tags=["meta"], summary="서버 상태와 AI 엔진 정보")
+    @app.get("/api/health", tags=["meta"], summary="서버 상태와 연동 점검(DB · RAG · AI)")
     def health(services: Services = Depends(get_services)):
-        return {"status": "ok", "version": VERSION, "mock": settings.mock_mode, **services.agent.describe()}
+        report = services.health()  # status 는 ok | degraded, checks 에 DB · RAG · AI 별 결과
+        return {"status": report["status"], "version": VERSION, "mock": settings.mock_mode, **services.agent.describe(), "checks": report["checks"]}
 
     @app.get("/api/usage", tags=["meta"], response_model=UsageTotal, summary="Claude API 누적 사용량(모든 세션)과 예산")
     def usage(services: Services = Depends(get_services)):

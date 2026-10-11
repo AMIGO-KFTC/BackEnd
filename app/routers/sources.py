@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from ..models import FileBlob, HandoverSession, Message, Source
-from ..schemas import LinksIn, SourceOut
+from ..schemas import LinksIn, ReindexResult, SourceOut
 from ..services.container import Services
 from ..services.storage import UploadRejected, display_name, extension_of
 from .deps import get_db, get_services, load_session
@@ -115,3 +115,20 @@ def delete_source(session_id: str, source_id: str, db: Session = Depends(get_db)
             )
         )
     db.commit()
+
+
+@router.post("/reindex", response_model=ReindexResult, status_code=status.HTTP_202_ACCEPTED, summary="지식베이스 다시 적재(원본으로)")
+def reindex(session_id: str, db: Session = Depends(get_db), services: Services = Depends(get_services)):
+    """임베딩 설정을 바꿨거나 서버를 옮겨 검색 결과가 비었을 때, 처리 완료된 자료를 원본으로 다시 적재한다.
+
+    대화와 정리된 내용은 그대로 두고 지식베이스만 다시 만든다. 진행 상황은 /state 의 sources[].status 로 본다.
+    """
+    row = load_session(db, session_id)
+    if services.runner.is_busy(session_id):
+        raise HTTPException(status_code=409, detail="AI가 처리 중입니다. 끝난 뒤 다시 시도해 주세요.")
+    if any(s.status in ("pending", "processing") for s in row.sources):
+        raise HTTPException(status_code=409, detail="자료를 처리하는 중입니다. 처리가 끝나면 다시 시도해 주세요.")
+    count = services.runner.reindex(session_id)
+    if not count:
+        raise HTTPException(status_code=400, detail="다시 적재할 자료가 없습니다. 처리가 끝난 자료가 있어야 합니다.")
+    return ReindexResult(message=f"자료 {count}건을 다시 적재합니다.", source_count=count)

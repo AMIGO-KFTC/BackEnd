@@ -400,7 +400,7 @@ curl -s -b $JAR -X PUT $API/profile -H "Content-Type: application/json" \
 
 # 3) 단위업무 입력(여러 건) → 응답의 tasks[].id 와 tasks[].session_id 를 기억
 curl -s -b $JAR -X POST $API/unit-tasks -H "Content-Type: application/json" \
-  -d '{"tasks": [{"name": "홈페이지 운영", "description": "기관 홈페이지 콘텐츠 관리"}, {"name": "웹 접근성 관리"}]}'
+  -d '{"tasks": [{"name": "홈페이지 운영", "description": "기관 홈페이지 콘텐츠 관리", "successor": "이서연 대리", "handover_date": "2026-10-30"}, {"name": "웹 접근성 관리", "mode": "leave"}]}'
 TASK=<tasks[0].id>; SESSION=<tasks[0].session_id>
 
 # 4) 업무파일 업로드 → 원본을 DB 에 저장하고, 적재가 끝나면 AI 분석이 자동으로 시작됨
@@ -413,6 +413,9 @@ curl -s -b $JAR "$API/sessions/$SESSION/state?after=0" | python3 -m json.tool --
 # 6) 다시 접속했을 때: 내 대화들이 어디까지 진행됐는지, 그리고 한 대화를 멈춘 곳 그대로 불러오기
 curl -s -b $JAR $API/conversations | python3 -m json.tool --no-ensure-ascii
 curl -s -b $JAR "$API/conversations/$SESSION?limit=50" | python3 -m json.tool --no-ensure-ascii
+
+# 7) 문서가 나온 뒤: 근거 번호별 원문(문서의 [1], [2] … 와 같은 번호)
+curl -s -b $JAR $API/sessions/$SESSION/citations | python3 -m json.tool --no-ensure-ascii
 ```
 
 ### 세션 API(로그인 없이 쓰는 기존 흐름)
@@ -470,9 +473,9 @@ AI 가 처리 중(`status` 가 `running`)일 때 6)·7) 을 보내면 `409` 가 
 | POST | `/api/auth/logout` | 로그아웃(로그인 세션 삭제, 쿠키 제거) |
 | GET | `/api/auth/me` | 로그인한 사용자와 프로필 |
 | GET / PUT | `/api/profile` | 프로필 조회 / 입력·수정 `{"department", "position", "team", "name"}` |
-| POST | `/api/unit-tasks` | 단위업무 입력 `{"tasks": [{"name", "description"}]}` (프로필 먼저, 같은 이름은 `409`) |
+| POST | `/api/unit-tasks` | 단위업무 입력 `{"tasks": [{"name", "description", "mode", "successor", "handover_date"}]}` (프로필 먼저, 같은 이름은 `409`). `mode`: `reassignment`(인사발령, 6개 장, 기본) / `leave`(장기휴가 Light, 4개 장) |
 | GET | `/api/unit-tasks[/{task_id}]` | 단위업무 목록 / 상세(`session_id`, 단계, 상태, 파일 수, 문서 버전) |
-| PATCH / DELETE | `/api/unit-tasks/{task_id}` | 이름·설명 수정 / 삭제(파일·지식베이스·대화·문서 포함) |
+| PATCH / DELETE | `/api/unit-tasks/{task_id}` | 이름·설명·인계 유형·인수자·인계일 수정(분석 뒤 유형을 바꾸면 '다시 분석' 필요) / 삭제(파일·지식베이스·대화·문서 포함) |
 | POST | `/api/unit-tasks/{task_id}/files` | 업무파일 업로드(multipart `files`) → **원본 DB 저장** → 적재 → **AI 분석 자동 시작** |
 | GET | `/api/unit-tasks/{task_id}/files[/{file_id}]` | 파일 목록(처리 상태) / DB 에 저장된 원본 내려받기 |
 
@@ -504,11 +507,23 @@ AI 가 처리 중(`status` 가 `running`)일 때 6)·7) 을 보내면 `409` 가 
 | `message_count`, `last_message`, `last_activity_at` | 대화 규모와 마지막 활동 |
 | `last_read_message_id`, `unread_count` | 마지막으로 읽은 위치와 그 뒤 AI 가 보낸 새 메시지 수(AI 는 백그라운드로 일하므로 자리를 비운 사이 쌓인 메시지를 알 수 있음) |
 
+### 근거 원문 · 지식베이스
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/sessions/{id}/citations` | 인수인계서의 근거 번호(`[1]`, `[2]` …)별 출처·인용·**조각 원문**. 번호는 문서의 '근거 자료' 목록과 같음. `kind`: `document`(올린 자료) / `answer`(인계자 답변) |
+| GET | `/api/sessions/{id}/sources/{source_id}/chunks?limit=50` | 올린 자료를 AI 가 읽은 조각 원문(페이지·시트·절 위치 포함) |
+| POST | `/api/sessions/{id}/reindex` | 지식베이스 다시 적재: 처리 완료된 자료를 원본(디스크 사본 또는 DB 원본)으로 다시 넣음. 대화·정리된 내용은 그대로 |
+
+임베딩 설정(`AMIGO_RAG_EMBEDDING`)을 바꿨거나 서버를 옮겨 `data/rag` 가 비었을 때를 위해, 서버가 시작할 때
+'처리 완료된 자료인데 지식베이스에 조각이 없는' 경우를 찾아 자동으로 다시 적재합니다(`AMIGO_REINDEX_ON_START`).
+다만 질의응답 중 지식베이스에 저장된 인계자 답변 원문은 원본 파일이 없어 다시 만들 수 없습니다(정리된 내용과 대화 기록은 DB 에 남아 있음).
+
 ### 세션 · 자료 · 대화 · 문서
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
-| GET | `/api/health` | 서버 상태, AI 엔진(claude/offline), 모델 |
+| GET | `/api/health` | 서버 상태와 연동 점검: `status`(`ok`/`degraded`), AI 엔진·모델, `checks.db`(연결), `checks.rag`(저장소 쓰기·임베딩 방식), `checks.ai`(API 키 유무·예산) |
 | GET | `/api/usage` | Claude API 누적 사용량(요청 수·토큰·추정 비용)과 예산·남은 금액 |
 | GET | `/api/config` | 업로드 제한·허용 확장자, 링크 유형, **인수인계서 양식(슬롯)**, 단계 정의 |
 | POST | `/api/sessions` | 세션 생성(인계자 기초 정보: 성명·소속·직책·담당 업무·인수자·인계일) |
@@ -627,6 +642,7 @@ Word 는 '맑은 고딕'을 동아시아 글꼴로 지정하고, PDF 는 시스�
 | `AMIGO_MOCK_MODE` | `false` | `true` 면 [가상 응답 모드](#가상-응답-모드-frontend-개발용): 예시 데이터로 응답, 임시 DB |
 | `AMIGO_MOCK_DELAY` | `0.4` | 가상 응답 모드에서 AI 단계 사이 대기 시간(초) |
 | `AMIGO_MOCK_SEED` | `true` | 가상 응답 모드에서 데모 계정·예시 단위업무를 미리 만들지 |
+| `AMIGO_REINDEX_ON_START` | `true` | 시작할 때 지식베이스에서 빠진 자료를 찾아 원본으로 다시 적재 |
 | `AMIGO_LLM_BUDGET_USD` | `0` | Claude API 추정 비용 상한(USD, 모든 세션 합계). 넘으면 새 AI 작업을 `429` 로 거절. 0 이면 제한 없음 |
 | `AMIGO_SESSION_TTL_HOURS` | `12` | 로그인 세션 유효 시간 |
 | `AMIGO_ALLOW_SIGNUP` | `true` | 회원가입 API 허용 여부 |
@@ -648,7 +664,7 @@ app/
   schemas.py        API 요청/응답 스키마(FrontEnd 의 src/types.ts 와 짝)
   security.py       비밀번호 해시(scrypt), 로그인 토큰
   mock/             가상 응답 모드: 예시 시나리오(scenario) · 가짜 AI(agent) · 가짜 지식베이스(kb) · 데모 데이터(seed)
-  routers/          auth(로그인) · profile(프로필) · unit_tasks(단위업무·업무파일) · conversations(진행 상태·기록 불러오기)
+  routers/          auth(로그인) · profile(프로필) · unit_tasks(단위업무·업무파일) · conversations(진행 상태·기록 불러오기) · evidence(근거 원문)
                     sessions(세션·폴링) · sources(업로드·링크) · chat(분석·대화·생성) · documents(조회·다운로드)
   services/
     container.py    DB · 파일 저장소 · 지식베이스(RAG) · 에이전트(AI) · 작업 실행기 조립

@@ -51,7 +51,7 @@ class MockAgent:
     def start(self, thread_id: str, profile: dict[str, Any], kb: Any, on_event: EventHandler = None) -> None:
         with self._lock(thread_id):
             emit = _Emitter(on_event)
-            sources = [{"name": s["name"], "type": s["type"]} for s in getattr(kb, "sources", [])]
+            sources = [{"source_id": s["source_id"], "name": s["name"], "type": s["type"]} for s in getattr(kb, "sources", [])]
             st = {
                 "profile": dict(profile or {}), "stage": "analyzing", "slots": {}, "gaps": [], "sources": sources,
                 "question_count": 0, "current_gap_id": "", "pending": {}, "document": "", "document_version": 0, "waiting": False,
@@ -63,7 +63,7 @@ class MockAgent:
             for spec in active:
                 emit.progress(f"'{spec.title}' 분석 중", slot=spec.key, status="running")
                 self._sleep()
-                slot = self._build_slot(spec.key, st)
+                slot = self._build_slot(spec.key, st, kb)
                 st["slots"][spec.key] = slot
                 emit.slot(spec.key, slot)
                 emit.progress(f"'{spec.title}' 분석 완료 · {COVERAGE_LABELS[slot['coverage']]}", slot=spec.key, status="done")
@@ -267,27 +267,31 @@ class MockAgent:
         st["waiting"] = True
 
     # ------------------------------------------------------------------ 데이터 만들기
-    def _build_slot(self, key: str, st: dict) -> dict[str, Any]:
+    def _build_slot(self, key: str, st: dict, kb: Any = None) -> dict[str, Any]:
         task = st["profile"].get("task_name") or st["profile"].get("duties") or "담당 업무"
         items = []
         for i, raw in enumerate(scenario.ITEMS.get(key, [])):
             fields = {k: v.replace("{task_name}", task) for k, v in raw["fields"].items()}
             item = {"id": f"{key}-{i + 1:02d}", "title": fields.get(SLOT_BY_KEY[key].title_field, ""), "fields": fields,
-                    "citations": [self._citation(st, raw["doc"], fields, i)], "origin": "document", "confirmed": False}
+                    "citations": [self._citation(st, raw["doc"], fields, i, kb)], "origin": "document", "confirmed": False}
             items.append(item)
         slot = {"key": key, "items": items, "coverage": "missing", "summary": "", "note": ""}
         st["slots"][key] = slot
         self._recount(st, key)
         return slot
 
-    def _citation(self, st: dict, doc: str, fields: dict[str, str], index: int) -> dict[str, str]:
+    def _citation(self, st: dict, doc: str, fields: dict[str, str], index: int, kb: Any = None) -> dict[str, str]:
+        """시나리오의 자료 종류에 맞는 업로드 파일을 골라 근거로 단다(가짜 지식베이스에 조각도 넣어 원문 조회가 되게)."""
         exts, locator = scenario.DOC_HINTS.get(doc, ((), ""))
-        names = [s["name"] for s in st["sources"]] or ["등록 자료"]
-        name = next((n for n in names if PurePosixPath(n.lower()).suffix in exts), names[index % len(names)])
-        if PurePosixPath(name.lower()).suffix not in exts:
+        sources = st["sources"] or [{"source_id": "", "name": "등록 자료"}]
+        source = next((s for s in sources if PurePosixPath(s["name"].lower()).suffix in exts), sources[index % len(sources)])
+        if PurePosixPath(source["name"].lower()).suffix not in exts:
             locator = ""
         quote = next((v for v in fields.values() if v and len(v) > 8), "")
-        return {"source_id": "mock", "label": f"{name} {locator}".strip(), "chunk_id": f"{doc}-{index}", "quote": quote[:80]}
+        chunk_id = ""
+        if kb is not None and hasattr(kb, "add_chunk") and source.get("source_id"):
+            chunk_id = kb.add_chunk(source["source_id"], f"(가상 응답 · {source['name']}) … {quote} …")
+        return {"source_id": source.get("source_id", ""), "label": f"{source['name']} {locator}".strip(), "chunk_id": chunk_id, "quote": quote[:80]}
 
     def _recount(self, st: dict, key: str) -> None:
         spec, slot = SLOT_BY_KEY[key], st["slots"][key]
