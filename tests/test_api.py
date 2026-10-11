@@ -17,8 +17,8 @@ def test_full_flow_upload_analyze_chat_generate_download(client, sample_dir):
     assert created.status_code == 201
     session = created.json()
     sid = session["id"]
-    assert session["stage"] == "setup" and session["title"] == "김민수 과장 인수인계"
-    assert [s["title"] for s in client.get("/api/sessions", headers={"X-User-Id": "u1"}).json()] == ["김민수 과장 인수인계"]
+    assert session["stage"] == "setup" and session["title"] == "김민수 · 홈페이지 운영 인수인계"
+    assert [s["title"] for s in client.get("/api/sessions", headers={"X-User-Id": "u1"}).json()] == ["김민수 · 홈페이지 운영 인수인계"]
     assert client.get("/api/sessions", headers={"X-User-Id": "someone-else"}).json() == []
 
     # 분석 전 대화는 막는다
@@ -207,3 +207,20 @@ def test_usage_is_recorded_and_budget_blocks_new_ai_work(client, settings):
     services.agent.describe = lambda: {"engine": "claude", "model": "claude-opus-5-5"}
     blocked = client.post(f"/api/sessions/{sid}/analyze")
     assert blocked.status_code == 429 and "예산" in blocked.json()["detail"]
+
+
+def test_leave_mode_session_is_light_and_config_lists_modes(client, sample_dir):
+    config = client.get("/api/config").json()
+    assert {m["key"] for m in config["modes"]} == {"reassignment", "leave"}
+    by_key = {s["key"]: s for s in config["slots"]}
+    assert by_key["dept_notes"]["leave"] is False and by_key["stakeholders"]["leave"] is True
+
+    created = client.post("/api/sessions", json={**PROFILE, "mode": "leave", "task_name": "CD공동망 운영"})
+    assert created.status_code == 201 and created.json()["mode"] == "leave" and created.json()["task_name"] == "CD공동망 운영"
+    sid = created.json()["id"]
+    assert client.post("/api/sessions", json={**PROFILE, "mode": "unknown"}).status_code == 422
+    upload(client, sid, sorted(p for p in sample_dir.iterdir()))
+    wait_for(client, sid, idle)
+    assert client.post(f"/api/sessions/{sid}/analyze").status_code == 202
+    state = wait_for(client, sid, lambda s: s["status"] == "waiting")
+    assert set(state["session"]["slots"]) == {"stakeholders", "regular", "irregular", "systems"}
