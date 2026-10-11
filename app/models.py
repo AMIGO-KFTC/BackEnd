@@ -32,7 +32,7 @@ class HandoverSession(Base):
     duties: Mapped[str] = mapped_column(Text, default="")
     successor: Mapped[str] = mapped_column(String(100), default="")
     handover_date: Mapped[str] = mapped_column(String(20), default="")
-    mode: Mapped[str] = mapped_column(String(20), default="transfer")  # transfer(인사발령) | leave(장기휴가)
+    mode: Mapped[str] = mapped_column(String(20), default="reassignment")  # reassignment(인사발령) | leave(장기휴가)
     task_name: Mapped[str] = mapped_column(String(200), default="")  # 단위 업무명
 
     # 진행 상태: stage 는 에이전트 단계(setup → analyzing → summary → qna → composing → review)
@@ -73,7 +73,7 @@ class HandoverSession(Base):
             "duties": self.duties,
             "successor": self.successor,
             "handover_date": self.handover_date,
-            "mode": self.mode or "transfer",
+            "mode": self.mode or "reassignment",
             "task_name": self.task_name,
         }
 

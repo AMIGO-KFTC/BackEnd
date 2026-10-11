@@ -17,7 +17,7 @@ def test_full_flow_upload_analyze_chat_generate_download(client, sample_dir):
     assert created.status_code == 201
     session = created.json()
     sid = session["id"]
-    assert session["stage"] == "setup" and session["title"] == "김민수 · 홈페이지 운영 인수인계" and session["mode"] == "transfer"
+    assert session["stage"] == "setup" and session["title"] == "김민수 · 홈페이지 운영 인수인계"
     assert [s["title"] for s in client.get("/api/sessions", headers={"X-User-Id": "u1"}).json()] == ["김민수 · 홈페이지 운영 인수인계"]
     assert client.get("/api/sessions", headers={"X-User-Id": "someone-else"}).json() == []
 
@@ -36,8 +36,8 @@ def test_full_flow_upload_analyze_chat_generate_download(client, sample_dir):
     state = wait_for(client, sid, lambda s: s["status"] == "waiting")
     session = state["session"]
     assert session["stage"] == "qna" and session["engine"] == "offline"
-    assert set(session["slots"]) == {"duties", "stakeholders", "recurring", "projects", "accounts", "dept"}
-    assert session["progress"]["current"] == session["progress"]["total"] == 6  # 인사발령: 6개 장
+    assert set(session["slots"]) == {"overview", "stakeholders", "regular", "irregular", "systems", "dept_notes"}
+    assert session["progress"]["current"] == session["progress"]["total"] == 6
     kinds = [m["kind"] for m in state["messages"]]
     assert kinds[0] == "info" and "summary" in kinds and kinds[-1] == "question"
     question = state["messages"][-1]
@@ -132,14 +132,14 @@ def test_files_added_during_qna_trigger_reanalysis(client, sample_dir):
     wait_for(client, sid, idle)
     client.post(f"/api/sessions/{sid}/analyze")
     state = wait_for(client, sid, lambda s: s["status"] == "waiting")
-    before = len(state["session"]["slots"]["accounts"]["items"])
+    before = len(state["session"]["slots"]["systems"]["items"])
     cursor = state["messages"][-1]["id"]
 
     upload(client, sid, [sample_dir / "홈페이지_운영매뉴얼.hwpx"])
     state = wait_for(client, sid, lambda s: idle(s) and s["status"] == "waiting" and len(_messages(client, sid, cursor)) > 0)
     new = _messages(client, sid, cursor)
     assert "새 자료(홈페이지_운영매뉴얼.hwpx)를 반영했어요" in new[-1]["content"]
-    after = client.get(f"/api/sessions/{sid}").json()["slots"]["accounts"]["items"]
+    after = client.get(f"/api/sessions/{sid}").json()["slots"]["systems"]["items"]
     assert len(after) > before
 
 
@@ -211,9 +211,9 @@ def test_usage_is_recorded_and_budget_blocks_new_ai_work(client, settings):
 
 def test_leave_mode_session_is_light_and_config_lists_modes(client, sample_dir):
     config = client.get("/api/config").json()
-    assert {m["key"] for m in config["modes"]} == {"transfer", "leave"}
+    assert {m["key"] for m in config["modes"]} == {"reassignment", "leave"}
     by_key = {s["key"]: s for s in config["slots"]}
-    assert by_key["projects"]["modes"] == ["transfer"] and by_key["stakeholders"]["modes"] == ["transfer", "leave"]
+    assert by_key["dept_notes"]["leave"] is False and by_key["stakeholders"]["leave"] is True
 
     created = client.post("/api/sessions", json={**PROFILE, "mode": "leave", "task_name": "CD공동망 운영"})
     assert created.status_code == 201 and created.json()["mode"] == "leave" and created.json()["task_name"] == "CD공동망 운영"
@@ -223,5 +223,4 @@ def test_leave_mode_session_is_light_and_config_lists_modes(client, sample_dir):
     wait_for(client, sid, idle)
     assert client.post(f"/api/sessions/{sid}/analyze").status_code == 202
     state = wait_for(client, sid, lambda s: s["status"] == "waiting")
-    assert set(state["session"]["slots"]) == {"duties", "stakeholders", "recurring", "accounts"}
-    assert state["session"]["progress"]["total"] == 4
+    assert set(state["session"]["slots"]) == {"stakeholders", "regular", "irregular", "systems"}
