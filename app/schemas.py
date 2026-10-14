@@ -246,8 +246,78 @@ class LinksIn(BaseModel):
 
 
 class DocumentOut(BaseModel):
+    """현재 인수인계서(마지막 버전). 사용자가 직접 고쳤으면 고친 문서가 온다."""
+
     markdown: str
     version: int
+    origin: str = Field(default="ai", description="ai(AI 작성) | user(직접 수정) | restore(이전 버전 복원)")
+    origin_label: str = "AI 작성"
+    author_name: str = Field(default="", description="직접 수정·복원한 사람(AI 작성이면 빈 값)")
+    updated_at: datetime | None = None
+    version_count: int = Field(default=0, description="지금까지 저장된 버전 수")
+
+
+class DocumentSaveIn(BaseModel):
+    markdown: str = Field(min_length=1, max_length=500_000, description="화면에서 고친 인수인계서 전체(Markdown)")
+    base_version: int = Field(ge=0, description="수정을 시작할 때 불러온 version. 그사이 새 버전이 생겼으면 409")
+    note: str = Field(default="", max_length=300, description="수정 메모(선택)")
+
+    @field_validator("markdown")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("빈 문서는 저장할 수 없습니다.")
+        return value
+
+
+class DocumentRestoreIn(BaseModel):
+    base_version: int | None = Field(default=None, ge=0, description="복원을 누를 때 보고 있던 현재 version(주면 그사이 바뀌었는지 검사)")
+    note: str = Field(default="", max_length=300)
+
+
+class DocumentVersionSummary(BaseModel):
+    version: int
+    origin: str = Field(description="ai | user | restore")
+    origin_label: str
+    ai_version: int = Field(description="AI 가 매긴 초안 번호(origin=ai 일 때, 아니면 0)")
+    based_on: int = Field(description="직접 수정·복원의 기준 버전(origin=ai 면 0)")
+    note: str
+    author_name: str
+    char_count: int
+    is_current: bool
+    created_at: datetime
+
+
+class DocumentVersionOut(DocumentVersionSummary):
+    markdown: str
+
+
+class DocumentVersionsOut(Result):
+    session_id: str
+    current_version: int
+    versions: list[DocumentVersionSummary] = Field(description="최신 버전부터")
+
+
+class DocumentSaved(Result):
+    saved: bool = Field(description="새 버전을 만들었는지(내용이 같으면 false)")
+    document: DocumentVersionOut
+
+
+class MyDocument(BaseModel):
+    session_id: str
+    task_id: str | None = Field(description="단위업무로 만든 문서면 단위업무 ID")
+    title: str
+    task_name: str
+    stage: str
+    version: int
+    origin: str
+    origin_label: str
+    version_count: int
+    updated_at: datetime
+
+
+class MyDocumentsOut(Result):
+    documents: list[MyDocument]
 
 
 class Accepted(BaseModel):
@@ -369,3 +439,62 @@ class CitationsOut(BaseModel):
 
 class ReindexResult(Result):
     source_count: int = Field(description="다시 적재하는 자료 수")
+
+
+# ---------------------------------------------------------------- 메일 조회(가상 메일 조회 API)
+
+
+class MailAddressOut(BaseModel):
+    name: str
+    email: str
+
+
+class MailAttachmentOut(BaseModel):
+    name: str
+    size: int
+    content_type: str
+
+
+class MailSummary(BaseModel):
+    id: str
+    folder: str = Field(description="inbox(받은 메일함) | sent(보낸 메일함)")
+    subject: str
+    sender: MailAddressOut
+    to: list[MailAddressOut]
+    sent_at: datetime
+    snippet: str = Field(description="본문 앞부분(목록 미리보기)")
+    has_attachments: bool
+    attachment_count: int
+    important: bool
+    relevance: int = Field(description="단위업무와의 관련도 점수(task_id·session_id 를 주었을 때, 높을수록 관련)")
+    recommended: bool = Field(description="단위업무와 관련 있어 보이는 메일")
+    imported: bool = Field(description="이미 이 업무 자료로 가져온 메일")
+
+
+class MailDetail(MailSummary):
+    cc: list[MailAddressOut]
+    body: str
+    attachments: list[MailAttachmentOut]
+
+
+class MailListOut(Result):
+    provider: str = Field(description="연결된 메일 조회 API(mock = 가상 메일함)")
+    mailbox: MailAddressOut
+    messages: list[MailSummary]
+    total: int
+    page: int
+    size: int
+    has_next: bool
+    keywords: list[str] = Field(description="관련도 정렬에 쓴 단위업무 낱말")
+
+
+class MailImportIn(BaseModel):
+    message_ids: list[str] = Field(min_length=1, max_length=20, description="가져올 메일 ID(목록의 id)")
+
+
+class MailImportResult(Result):
+    session_id: str
+    task_id: str | None = None
+    files: list[SourceOut] = Field(description="새로 등록한 자료(.eml)")
+    skipped: list[str] = Field(description="이미 가져와서 건너뛴 메일 제목")
+    analysis_scheduled: bool
