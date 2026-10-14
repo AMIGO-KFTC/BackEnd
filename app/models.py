@@ -1,4 +1,4 @@
-"""DB 모델: 사용자 · 프로필 · 로그인 세션 · 단위업무 · 인수인계 세션 · 등록 자료(파일 원본) · 대화 메시지 · 대화 진행 상태."""
+"""DB 모델: 사용자 · 프로필 · 로그인 세션 · 단위업무 · 인수인계 세션 · 등록 자료(파일 원본) · 대화 메시지 · 대화 진행 상태 · 인수인계서 버전."""
 
 from __future__ import annotations
 
@@ -133,6 +133,9 @@ class HandoverSession(Base):
 
     sources: Mapped[list[Source]] = relationship(back_populates="session", cascade="all, delete-orphan", order_by="Source.created_at")
     messages: Mapped[list[Message]] = relationship(back_populates="session", cascade="all, delete-orphan", order_by="Message.id")
+    document_versions: Mapped[list[DocumentVersion]] = relationship(
+        back_populates="session", cascade="all, delete-orphan", passive_deletes=True, order_by="DocumentVersion.version"
+    )
 
     def profile(self) -> dict[str, Any]:
         return {
@@ -202,6 +205,31 @@ class Message(Base):
     @property
     def meta(self) -> dict[str, Any]:
         return json.loads(self.meta_json or "{}")
+
+
+class DocumentVersion(Base):
+    """인수인계서 버전 기록. AI 가 작성한 초안과 사용자가 화면에서 직접 고친 문서를 모두 쌓아 둔다.
+
+    version 은 세션 안에서 1부터 늘어나는 BackEnd 기준 번호다(AI 초안·직접 수정·복원이 한 줄로 이어짐).
+    sessions.document_md / document_version 은 항상 마지막 버전(현재 문서)을 가리킨다.
+    """
+
+    __tablename__ = "document_versions"
+    __table_args__ = (UniqueConstraint("session_id", "version", name="uq_document_versions_session_version"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    origin: Mapped[str] = mapped_column(String(10))  # ai(AI 작성) | user(직접 수정) | restore(이전 버전 복원)
+    ai_version: Mapped[int] = mapped_column(Integer, default=0)  # AI 가 매긴 초안 번호(origin=ai 일 때)
+    based_on: Mapped[int] = mapped_column(Integer, default=0)  # 직접 수정·복원의 기준이 된 버전
+    markdown: Mapped[str] = mapped_column(Text)
+    note: Mapped[str] = mapped_column(String(300), default="")
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), default=None)
+    author_name: Mapped[str] = mapped_column(String(50), default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+    session: Mapped[HandoverSession] = relationship(back_populates="document_versions")
 
 
 class FileBlob(Base):

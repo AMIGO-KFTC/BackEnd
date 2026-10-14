@@ -507,6 +507,44 @@ AI 가 처리 중(`status` 가 `running`)일 때 6)·7) 을 보내면 `409` 가 
 | `message_count`, `last_message`, `last_activity_at` | 대화 규모와 마지막 활동 |
 | `last_read_message_id`, `unread_count` | 마지막으로 읽은 위치와 그 뒤 AI 가 보낸 새 메시지 수(AI 는 백그라운드로 일하므로 자리를 비운 사이 쌓인 메시지를 알 수 있음) |
 
+### 인수인계서 직접 수정 · 버전 기록
+
+AI 가 만든 초안과 사용자가 화면에서 직접 고친 문서를 모두 `document_versions` 에 **버전으로 쌓습니다.**
+`GET /document` 는 항상 마지막 버전(직접 고쳤으면 고친 문서)을 돌려주므로, 다시 접속해도 고친 문서가 그대로 열립니다.
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/sessions/{id}/document` | 현재 인수인계서: `markdown`, `version`, `origin`(`ai`/`user`/`restore`), `origin_label`, `author_name`, `updated_at`, `version_count` |
+| PUT | `/api/sessions/{id}/document` | 직접 고친 문서 저장 `{"markdown": "...", "base_version": 3, "note": "선택"}` → 새 버전. 그사이 버전이 바뀌었으면 `409`(덮어쓰기 방지), AI 처리 중이면 `409`, 내용이 같으면 `saved: false` |
+| GET | `/api/sessions/{id}/document/versions` | 버전 기록(최신순, 본문 제외): 번호·출처(AI 작성/직접 수정/복원)·AI 초안 번호·기준 버전·메모·작성자·시각·현재 여부 |
+| GET | `/api/sessions/{id}/document/versions/{version}` | 특정 버전 본문 |
+| POST | `/api/sessions/{id}/document/versions/{version}/restore` | 이전 버전을 현재 문서로 복원(복원도 새 버전) `{"base_version": 4}` |
+| GET | `/api/sessions/{id}/download?format=pdf\|docx\|md&version=2` | `version` 을 주면 그 버전을 내려받음(비우면 현재 문서) |
+| GET | `/api/documents` | 로그인 계정이 지금까지 작성한 인수인계서 목록(단위업무·현재 버전·버전 수·최근 수정 시각) |
+
+- 버전 번호는 세션 안에서 1부터 이어지는 BackEnd 기준 번호입니다(AI 초안 → 직접 수정 → AI 재작성 순으로 v1, v2, v3).
+  AI 가 매긴 초안 번호는 `ai_version` 에 따로 남습니다.
+- 직접 고친 뒤 채팅으로 수정을 요청하면 AI 는 정리된 내용(슬롯)으로 **새 초안**을 씁니다. 직접 고친 문서는 버전 기록에 남아 있어 복원할 수 있습니다.
+- 저장·복원하면 대화 기록에 안내 메시지(`system`/`info`)가 남습니다.
+- 이 기능 이전에 만든 문서(`sessions.document_md`)는 서버를 시작할 때 첫 버전으로 옮겨집니다.
+
+### 메일 조회 API (가상 메일함)
+
+업무 자료를 올릴 때 메일함에서 업무 메일을 찾아 골라 가져옵니다. 지금은 실제 메일 서버 대신 **가상 메일 조회 API**
+(`app/services/mail.py` 의 `MockMailProvider`, 예시 메일 22건)를 연결해 두었고, 메일함은 로그인 계정 기준입니다(`<아이디>@amigo.example`).
+실제 메일 시스템을 붙일 때는 같은 메서드(`search`, `get`)를 가진 클래스를 만들어 `Services.mail` 만 바꾸면 됩니다.
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/mail/messages?q=&sender=&folder=inbox\|sent&date_from=&date_to=&has_attachments=&task_id=&session_id=&page=1&size=20` | 메일 목록. `task_id`(또는 `session_id`)를 주면 단위업무 낱말로 **관련도순** 정렬(`relevance`, `recommended`)하고 이미 가져온 메일은 `imported: true` |
+| GET | `/api/mail/messages/{message_id}` | 메일 상세(본문·참조·첨부 목록) |
+| POST | `/api/unit-tasks/{task_id}/mails` | 고른 메일 가져오기 `{"message_ids": ["m-0001", ...]}`(최대 20건) → 파일 업로드와 똑같이 적재, 끝나면 AI 분석 자동 시작 |
+| POST | `/api/sessions/{id}/mails` | 세션 흐름에서 가져오기(분석이 끝난 세션이면 새 자료로 재분석) |
+
+가져온 메일은 표준 `.eml`(본문 + 첨부)로 만들어 업로드 파일과 같이 원본은 `file_blobs`, 파싱용 사본은 디스크에 둡니다.
+자료 목록에서는 `kind: "file"`, `link_type: "mail"`, `url: "mail:<메일 ID>"` 로 구분되고, 같은 메일은 두 번 가져오지 않습니다(`skipped`).
+RAG 메일 파서가 보낸 사람·받는 사람·일시·제목을 출처 표기로 쓰고 지원 형식의 첨부파일도 함께 읽습니다.
+
 ### 근거 원문 · 지식베이스
 
 | 메서드 | 경로 | 설명 |
@@ -540,8 +578,8 @@ AI 가 처리 중(`status` 가 `running`)일 때 6)·7) 을 보내면 `409` 가 
 | POST | `/api/sessions/{id}/skip` | 현재 질문 건너뛰기 |
 | POST | `/api/sessions/{id}/generate` | 지금 바로 STAGE 4 문서 생성 |
 | POST | `/api/sessions/{id}/retry` | 오류로 멈춘 작업 재시도 |
-| GET | `/api/sessions/{id}/document` | 생성된 인수인계서(Markdown) |
-| GET | `/api/sessions/{id}/download?format=pdf\|docx\|md` | 인수인계서 내려받기 |
+| GET / PUT | `/api/sessions/{id}/document` | 현재 인수인계서 조회 / 직접 고친 문서 저장([위](#인수인계서-직접-수정--버전-기록) 참고) |
+| GET | `/api/sessions/{id}/download?format=pdf\|docx\|md[&version=N]` | 인수인계서 내려받기 |
 
 ### 비동기 처리와 폴링 규약
 
@@ -570,7 +608,8 @@ AI 가 처리 중(`status` 가 `running`)일 때 6)·7) 을 보내면 `409` 가 
 | `agent_checkpoints` | thread_id(=세션 ID), checkpoint_id, parent_checkpoint_id, checkpoint(직렬화된 에이전트 상태), metadata |
 | `agent_checkpoint_writes` | thread_id, checkpoint_id, task_id, idx, channel, value(병렬 노드 결과·입력 대기 같은 중간 기록) |
 | `sessions` | id, user_id, 인계자 기초 정보, **stage, status, progress**, error, engine, slots_json, gaps_json, question_count, document_md, document_version |
-| `sources` | id(=RAG source_id), session_id, kind(file/link), name, stored_path/url, link_type, size, status(pending/processing/ready/failed), error, chunk_count, warnings |
+| `document_versions` | session_id, **version**(세션 안 번호), origin(ai/user/restore), ai_version, based_on, markdown, note, author_id, author_name, created_at |
+| `sources` | id(=RAG source_id), session_id, kind(file/link), name, stored_path/url, link_type(메일에서 가져오면 mail), size, status(pending/processing/ready/failed), error, chunk_count, warnings |
 | `messages` | id(증가 커서), session_id, role(user/assistant/system), kind, content, meta_json, created_at |
 
 단위업무는 테이블을 새로 만들지 않고 `unit_tasks` 의 행 하나 + 전용 `sessions` 행 하나로 나눕니다.
@@ -583,7 +622,8 @@ AI 가 처리 중(`status` 가 `running`)일 때 6)·7) 을 보내면 `409` 가 
 | 저장하는 것 | 테이블 |
 |---|---|
 | 주고받은 메시지(질문·답변·확인·안내) | `messages` |
-| 단계·상태·진행률, 장별 충족 현황, 빈 항목(질문 대상), 질문 수, 인수인계서 | `sessions` |
+| 단계·상태·진행률, 장별 충족 현황, 빈 항목(질문 대상), 질문 수, 현재 인수인계서 | `sessions` |
+| 인수인계서 버전 기록(AI 초안·직접 수정·복원) | `document_versions` |
 | 에이전트가 멈춘 지점(현재 질문, 확인 대기 중인 답변, 다음에 실행할 노드) | `agent_checkpoints`, `agent_checkpoint_writes` |
 | 사용자가 어디까지 읽었는지 | `conversation_reads` |
 
@@ -660,16 +700,19 @@ ChromaDB 위치는 BackEnd 가 `AMIGO_DATA_DIR/rag` 로 지정하므로 `AMIGO_R
 app/
   main.py           FastAPI 앱: 라우터 등록, /api/health · /api/config, 빌드된 화면 제공
   config.py         설정(AMIGO_ 환경변수, BackEnd/.env)
-  models.py         DB 모델: 사용자 · 프로필 · 로그인 세션 · 단위업무 · 세션 · 등록 자료(원본) · 대화 메시지
+  models.py         DB 모델: 사용자 · 프로필 · 로그인 세션 · 단위업무 · 세션 · 등록 자료(원본) · 대화 메시지 · 인수인계서 버전
   schemas.py        API 요청/응답 스키마(FrontEnd 의 src/types.ts 와 짝)
   security.py       비밀번호 해시(scrypt), 로그인 토큰
   mock/             가상 응답 모드: 예시 시나리오(scenario) · 가짜 AI(agent) · 가짜 지식베이스(kb) · 데모 데이터(seed)
   routers/          auth(로그인) · profile(프로필) · unit_tasks(단위업무·업무파일) · conversations(진행 상태·기록 불러오기) · evidence(근거 원문)
-                    sessions(세션·폴링) · sources(업로드·링크) · chat(분석·대화·생성) · documents(조회·다운로드)
+                    sessions(세션·폴링) · sources(업로드·링크) · chat(분석·대화·생성) · documents(조회·직접 수정·버전·다운로드)
+                    mail(메일 조회 API · 메일 가져오기)
   services/
     container.py    DB · 파일 저장소 · 지식베이스(RAG) · 에이전트(AI) · 작업 실행기 조립
     runner.py       백그라운드 작업 실행, 에이전트 이벤트 → DB 기록, 재시작 복구
     checkpointer.py 에이전트(LangGraph) 체크포인트를 DB 에 저장, 예전 SQLite 파일 가져오기
+    documents.py    인수인계서 버전 기록(AI 초안·직접 수정·복원), 예전 문서 옮기기
+    mail.py         메일 조회 API 연동(가상 메일함 MockMailProvider), 메일 → .eml 변환
     storage.py      업로드 파일 안전 저장
     exporters.py    Markdown → Word / PDF
 scripts/            설치·실행 스크립트(sh, ps1)

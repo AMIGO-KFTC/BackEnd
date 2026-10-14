@@ -1,7 +1,8 @@
 """단위업무 입력과 단위업무별 업무파일 업로드.
 
 단위업무 1건마다 인수인계 세션(sessions) 1건을 만들어 자료·지식베이스(ChromaDB 컬렉션)·질의응답·인수인계서를 따로 둔다.
-파일을 올리면 원본을 DB 에 저장하고, 적재(파싱→청킹→임베딩)가 끝나는 대로 AI 분석을 자동으로 시작한다.
+파일을 올리면(또는 메일 조회 API 에서 고른 메일을 가져오면) 원본을 DB 에 저장하고, 적재(파싱→청킹→임베딩)가 끝나는 대로
+AI 분석을 자동으로 시작한다.
 질의응답·문서 조회는 응답의 session_id 로 기존 /api/sessions/{session_id}/... API 를 그대로 쓴다.
 """
 
@@ -14,10 +15,22 @@ from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFil
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import FileBlob, Source, UnitTask, User
-from ..schemas import FileUploadResult, Result, SourceOut, UnitTaskOut, UnitTaskResult, UnitTasksIn, UnitTasksResult, UnitTaskUpdate
+from ..models import FileBlob, HandoverSession, Source, UnitTask, User
+from ..schemas import (
+    FileUploadResult,
+    MailImportIn,
+    MailImportResult,
+    Result,
+    SourceOut,
+    UnitTaskOut,
+    UnitTaskResult,
+    UnitTasksIn,
+    UnitTasksResult,
+    UnitTaskUpdate,
+)
 from ..services.container import Services
 from .deps import current_user, get_db, get_services
+from .mail import import_mails, import_message
 from .sessions import new_handover_session, remove_handover_session
 from .sources import store_uploads
 
@@ -166,11 +179,7 @@ async def upload_task_files(
     task = load_task(db, user, task_id)
     row = task.session
     created, accepted = await store_uploads(db, services, row, files)
-    over_budget = services.budget_exhausted() is not None
-    auto = services.settings.auto_analyze and not over_budget
-    services.runner.run_ingest(row.id, accepted, auto_analyze=auto)
-    # 분석 전이면 자동 분석(설정), 분석 뒤면 새 자료로 재분석(기존 규칙)이 이어진다
-    scheduled = bool(accepted) and (auto or row.stage != "setup")
+    scheduled, over_budget = _ingest(services, row, accepted)
     failed = [s for s in created if s.status == "failed"]
     if not accepted:
         response.status_code = status.HTTP_400_BAD_REQUEST
@@ -179,18 +188,60 @@ async def upload_task_files(
         message = f"파일 {len(accepted)}개를 저장했습니다."
         if failed:
             message += f" {len(failed)}개는 저장하지 못했습니다({', '.join(s.name for s in failed)})."
-        if scheduled:
-            message += " 자료 처리가 끝나면 AI 분석을 시작합니다."
-        elif over_budget:
-            message += " Claude API 예산을 모두 써서 AI 분석은 시작하지 않습니다."
-        else:
-            message += " '분석 시작'을 눌러 AI 분석을 요청해 주세요."
+        message += _analysis_note(scheduled, over_budget)
     return FileUploadResult(
         success=bool(accepted),
         message=message,
         task_id=task.id,
         session_id=row.id,
         files=[SourceOut.model_validate(s) for s in created],
+        analysis_scheduled=scheduled,
+    )
+
+
+def _ingest(services: Services, row: HandoverSession, accepted: list[str]) -> tuple[bool, bool]:
+    """저장한 자료를 적재한다. (AI 분석이 이어지는지, 예산 초과로 자동 분석을 건너뛰는지) 를 돌려준다."""
+    over_budget = services.budget_exhausted() is not None
+    auto = services.settings.auto_analyze and not over_budget
+    services.runner.run_ingest(row.id, accepted, auto_analyze=auto)
+    # 분석 전이면 자동 분석(설정), 분석 뒤면 새 자료로 재분석(기존 규칙)이 이어진다
+    return bool(accepted) and (auto or row.stage != "setup"), over_budget
+
+
+def _analysis_note(scheduled: bool, over_budget: bool) -> str:
+    if scheduled:
+        return " 자료 처리가 끝나면 AI 분석을 시작합니다."
+    if over_budget:
+        return " Claude API 예산을 모두 써서 AI 분석은 시작하지 않습니다."
+    return " '분석 시작'을 눌러 AI 분석을 요청해 주세요."
+
+
+@router.post("/{task_id}/mails", response_model=MailImportResult, status_code=status.HTTP_201_CREATED, summary="고른 메일을 업무 자료로 가져오기")
+def import_task_mails(
+    task_id: str,
+    body: MailImportIn,
+    response: Response,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+    services: Services = Depends(get_services),
+):
+    """GET /api/mail/messages?task_id= 로 찾은 메일 ID 를 보내면 .eml 로 저장하고 파일 업로드와 똑같이 적재·분석한다."""
+    task = load_task(db, user, task_id)
+    row = task.session
+    created, accepted, skipped = import_mails(db, services, row, user, body.message_ids)
+    scheduled, over_budget = _ingest(services, row, accepted)
+    message = import_message(created, accepted, skipped)
+    if accepted:
+        message += _analysis_note(scheduled, over_budget)
+    elif not skipped:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+    return MailImportResult(
+        success=bool(accepted) or bool(skipped),
+        message=message,
+        session_id=row.id,
+        task_id=task.id,
+        files=[SourceOut.model_validate(s) for s in created],
+        skipped=skipped,
         analysis_scheduled=scheduled,
     )
 

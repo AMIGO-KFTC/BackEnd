@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import Settings, get_settings
-from .routers import auth, chat, conversations, documents, evidence, profile, sessions, sources, unit_tasks
+from .routers import auth, chat, conversations, documents, evidence, mail, profile, sessions, sources, unit_tasks
 from .routers.deps import get_services, guard_session_owner, usage_total
 from .schemas import UsageTotal
 from .services.container import Services
@@ -61,10 +61,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             response.headers["X-AMIGO-Mock"] = "true"
             return response
 
-    for module in (auth, profile, unit_tasks, conversations):
-        app.include_router(module.router)
-    for module in (sessions, sources, chat, documents, evidence):  # 로그인 계정이 만든 세션은 그 계정만 접근
-        app.include_router(module.router, dependencies=[Depends(guard_session_owner)])
+    for router in (auth.router, profile.router, unit_tasks.router, conversations.router, documents.mine_router, mail.router):
+        app.include_router(router)
+    # 로그인 계정이 만든 세션은 그 계정만 접근
+    for router in (sessions.router, sources.router, chat.router, documents.router, evidence.router, mail.session_router):
+        app.include_router(router, dependencies=[Depends(guard_session_owner)])
     _install_error_handlers(app)
 
     @app.get("/api/health", tags=["meta"], summary="서버 상태와 연동 점검(DB · RAG · AI)")
@@ -95,6 +96,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 {"key": key, "number": STAGE_NUMBER[key], "label": STAGE_LABEL[key]}
                 for key in ("analyzing", "summary", "qna", "composing", "review")
             ],
+            "mail": {"provider": services.mail.name, "max_import": 20},
             "modes": [{"key": key, "label": label} for key, label in MODE_LABELS.items()],
             "slots": [
                 {
@@ -126,6 +128,9 @@ FIELD_LABELS = {
     "tasks.description": "업무 설명",
     "description": "업무 설명",
     "files": "파일",
+    "markdown": "인수인계서 내용",
+    "base_version": "기준 버전",
+    "message_ids": "메일",
 }
 
 
