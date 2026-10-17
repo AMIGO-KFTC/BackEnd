@@ -68,25 +68,43 @@ def test_unit_task_flow_with_real_rag_and_agent(client, sample_dir):
     assert set(session["slots"]) == {"overview", "stakeholders", "regular", "irregular", "systems", "dept_notes"}
     assert all(s["status"] == "ready" and s["chunk_count"] > 0 for s in session["sources"])
 
-    # 장기휴가(Light): 4개 장만
+    # 장기휴가: 3개 장만(부재 중 처리할 단위 업무·세부 업무·시스템 접근 권한)
     upload(client, light["id"], sample_dir, SAMPLES[:2])
     wait_question(client, light["session_id"])
-    assert set(client.get(f"/api/sessions/{light['session_id']}").json()["slots"]) == {"stakeholders", "regular", "irregular", "systems"}
+    assert set(client.get(f"/api/sessions/{light['session_id']}").json()["slots"]) == {"leave_units", "leave_tasks", "leave_contacts", "systems"}
 
     # 질의응답 → 문서
-    client.post(f"/api/sessions/{sid}/chat", json={"text": "재무팀 박지훈 차장 연락처는 내선 2345 입니다"})
-    wait_question(client, sid)
-    client.post(f"/api/sessions/{sid}/chat", json={"text": "네, 맞아요"})
-    wait_question(client, sid)
+    # 질문 순서는 자료에 따라 달라지므로, 앞의 질문들에 차례로 답한다(협업관계처럼 근거 번호가 없는 장과 시스템·정기업무 장이 섞여 있다)
+    for _ in range(6):
+        if wait_question(client, sid)["next_action"] != "answer_question":
+            break
+        client.post(f"/api/sessions/{sid}/chat", json={"text": "홈페이지 리뉴얼 건이고 신청은 내선 2345 로 연락합니다"})
+        wait_question(client, sid)
+        client.post(f"/api/sessions/{sid}/chat", json={"text": "네, 맞아요"})
+        wait_question(client, sid)
     client.post(f"/api/sessions/{sid}/generate")
     wait_for(client, sid, lambda s: s["status"] == "waiting" and s["document_version"] >= 1)
     markdown = client.get(f"/api/sessions/{sid}/document").json()["markdown"]
     for row in ("| 인수자 | 이서연 대리 |", "| 인계 일자 | 2026-10-30 |", "| 인계 유형 | 인사발령 |", "| 단위 업무명 | 기관 홈페이지 운영 |"):
         assert row in markdown
 
+    # 월별 일정표 막대를 고치면 실제 에이전트 상태(계획기간)에 확정되고, 검토 의견으로 다시 만들어도 유지된다
+    import re
+
+    name = re.search(r"<tr><td>([^<]+)</td>(?:<td[^>]*>[^<]*</td>)+<td>[^<]*</td></tr>", markdown.split("## 1.")[1]).group(1)
+    edited = client.put(f"/api/sessions/{sid}/document/gantt", json={"name": name, "months": [4, 5]})
+    assert edited.status_code == 200, (name, edited.text)
+    row = re.search(rf"<tr><td>{re.escape(name)}</td>(.*?)<td>[^<]*</td></tr>", edited.json()["markdown"]).group(1)
+    assert row == '<td></td><td></td><td></td><td class="bar" bgcolor="#7055C8" colspan="2">&nbsp;</td>' + "<td></td>" * 7
+    assert client.get(f"/api/sessions/{sid}/document").json()["markdown"] == edited.json()["markdown"]
+    client.post(f"/api/sessions/{sid}/chat", json={"text": "외주 업체 계약은 매년 12월에 갱신합니다"})
+    wait_for(client, sid, lambda s: s["status"] == "waiting" and s["document_version"] >= 2)
+    assert row in client.get(f"/api/sessions/{sid}/document").json()["markdown"]
+    markdown = client.get(f"/api/sessions/{sid}/document").json()["markdown"]
+
     # 근거 원문: 번호와 출처가 문서의 '근거 자료' 목록과 같고, 자료 근거는 RAG 조각 원문을 돌려준다
     cites = client.get(f"/api/sessions/{sid}/citations").json()
-    assert cites["document_version"] == 1
+    assert cites["document_version"] == 2
     numbered = [(c["number"], c["label"]) for c in cites["citations"]]
     assert numbered == document_references(markdown)
     from_docs = [c for c in cites["citations"] if c["kind"] == "document"]
