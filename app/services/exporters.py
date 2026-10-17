@@ -1,6 +1,8 @@
 """인수인계서 Markdown → Word(.docx) / PDF 변환.
 
 Markdown 은 mistune 으로 구문 트리를 만든 뒤 제목·문단·목록·표만 옮긴다(에이전트가 만드는 문서 형식).
+셀 병합(rowspan/colspan)이나 막대 색이 필요한 표(월별 일정표, 협업관계 칸 분할)는 문서 안에 HTML <table> 로 들어 있으며,
+이 HTML 표도 읽어서 같은 모양의 Word/PDF 표로 옮긴다(th 는 머리글, class="bar"·bgcolor 칸은 색칠).
 - Word: 한글이 깨지지 않도록 동아시아 글꼴(eastAsia)을 '맑은 고딕'으로 지정
 - PDF : reportlab. 한글 TTF 글꼴을 찾아 문서에 포함(나눔고딕·맑은 고딕·애플고딕·WenQuanYi …).
         못 찾으면 reportlab 내장 CID 글꼴(HYGothic-Medium, 뷰어 글꼴 사용)로 대체. AMIGO_PDF_FONT 로 지정 가능.
@@ -10,6 +12,7 @@ from __future__ import annotations
 
 import io
 import os
+from html.parser import HTMLParser
 from dataclasses import dataclass, field
 from datetime import date
 from xml.sax.saxutils import escape
@@ -35,7 +38,14 @@ class Block:
     level: int = 0  # heading level / list depth
     ordered: bool = False
     number: int = 0
-    rows: list[list[list[Run]]] = field(default_factory=list)  # table: rows → cells → runs (첫 행이 머리글)
+    rows: list[list[list[Run]]] = field(default_factory=list)  # table: rows → cells → runs (Markdown 표는 첫 행이 머리글)
+    # HTML 표 전용: (행, 열) → (rowspan, colspan) 은 병합의 왼쪽 위 칸, 머리글 칸 목록(None 이면 첫 행), 칸 색(RRGGBB)
+    spans: dict[tuple[int, int], tuple[int, int]] = field(default_factory=dict)
+    headers: set[tuple[int, int]] | None = None
+    fills: dict[tuple[int, int], str] = field(default_factory=dict)
+
+    def is_header(self, r: int, c: int) -> bool:
+        return r == 0 if self.headers is None else (r, c) in self.headers
 
 
 def _runs(children: list[dict], bold: bool = False, italic: bool = False) -> list[Run]:
@@ -59,6 +69,83 @@ def _runs(children: list[dict], bold: bool = False, italic: bool = False) -> lis
         elif "raw" in node:
             out.append(Run(node["raw"], bold, italic))
     return out
+
+
+class _HtmlTables(HTMLParser):
+    """문서 속 <table> 을 Block 으로 바꾼다. rowspan/colspan 을 풀어 모든 행의 칸 수를 맞추고, 병합 위치는 spans 에 남긴다."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.blocks: list[Block] = []
+        self._rows: list[list[dict]] | None = None
+        self._cell: dict | None = None
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == "table":
+            self._rows = []
+        elif tag == "tr" and self._rows is not None:
+            self._rows.append([])
+        elif tag in ("td", "th") and self._rows:
+            fill = ""
+            if "bar" in (a.get("class") or "").split() or a.get("bgcolor"):
+                fill = (a.get("bgcolor") or "#7055C8").lstrip("#").upper()
+            self._cell = {
+                "runs": [], "header": tag == "th", "fill": fill,
+                "rowspan": max(1, int(a.get("rowspan") or 1)), "colspan": max(1, int(a.get("colspan") or 1)),
+            }
+            self._rows[-1].append(self._cell)
+        elif tag == "br" and self._cell is not None:
+            self._cell["runs"].append(Run("\n", self._cell["header"]))
+
+    def handle_endtag(self, tag):
+        if tag in ("td", "th"):
+            self._cell = None
+        elif tag == "table" and self._rows is not None:
+            self.blocks.append(self._build(self._rows))
+            self._rows = None
+
+    def handle_data(self, data):
+        if self._cell is not None and data.strip("\n\r\t") != "":
+            text = " ".join(data.split()) if data.strip() else " "
+            self._cell["runs"].append(Run(text.replace("\xa0", " ") if text.strip() else "", self._cell["header"]))
+
+    @staticmethod
+    def _build(rows: list[list[dict]]) -> Block:
+        occupied: set[tuple[int, int]] = set()
+        placed: dict[tuple[int, int], dict] = {}
+        for r, row in enumerate(rows):
+            c = 0
+            for cell in row:
+                while (r, c) in occupied:
+                    c += 1
+                placed[(r, c)] = cell
+                for dr in range(cell["rowspan"]):
+                    for dc in range(cell["colspan"]):
+                        if dr or dc:
+                            occupied.add((r + dr, c + dc))
+                c += cell["colspan"]
+        n_rows = len(rows)
+        n_cols = max([c + cell["colspan"] for (r, c), cell in placed.items()] or [0])
+        block = Block("table", rows=[[[] for _ in range(n_cols)] for _ in range(n_rows)], headers=set())
+        for (r, c), cell in placed.items():
+            if r >= n_rows:
+                continue
+            block.rows[r][c] = [run for run in cell["runs"] if run.text != ""]
+            if cell["rowspan"] > 1 or cell["colspan"] > 1:
+                block.spans[(r, c)] = (min(cell["rowspan"], n_rows - r), min(cell["colspan"], n_cols - c))
+            if cell["header"]:
+                block.headers.add((r, c))
+            if cell["fill"]:
+                block.fills[(r, c)] = cell["fill"]
+        return block
+
+
+def html_table_blocks(raw: str) -> list[Block]:
+    parser = _HtmlTables()
+    parser.feed(raw or "")
+    parser.close()
+    return parser.blocks
 
 
 def markdown_blocks(markdown: str) -> list[Block]:
@@ -91,6 +178,8 @@ def markdown_blocks(markdown: str) -> list[Block]:
                     for row in part.get("children", []):
                         rows.append([_runs(cell.get("children", [])) for cell in row.get("children", [])])
             blocks.append(Block("table", rows=rows))
+        elif kind == "block_html":
+            blocks.extend(html_table_blocks(str(node.get("raw") or "")))
         elif kind == "thematic_break":
             blocks.append(Block("rule"))
         elif kind == "block_quote":
@@ -184,14 +273,27 @@ def to_docx(markdown: str, *, title: str = "업무 인수인계서") -> bytes:
             table = doc.add_table(rows=len(block.rows), cols=cols)
             table.style = "Table Grid"
             table.alignment = WD_TABLE_ALIGNMENT.CENTER
+            covered = {
+                (r + dr, c + dc)
+                for (r, c), (rs, cs) in block.spans.items()
+                for dr in range(rs)
+                for dc in range(cs)
+                if dr or dc
+            }
             for r_index, row in enumerate(block.rows):
                 for c_index in range(cols):
+                    if (r_index, c_index) in covered:
+                        continue
                     cell = table.cell(r_index, c_index)
                     runs = row[c_index] if c_index < len(row) else []
-                    if r_index == 0:
+                    if block.is_header(r_index, c_index):
                         runs = [Run(x.text, True, x.italic) for x in runs]
                         shade(cell, "E8EEF7")
+                    if (r_index, c_index) in block.fills:
+                        shade(cell, block.fills[(r_index, c_index)])
                     add_runs(cell.paragraphs[0], runs, size=9)
+            for (r_index, c_index), (rs, cs) in block.spans.items():  # 병합은 내용을 채운 뒤에 한다
+                table.cell(r_index, c_index).merge(table.cell(r_index + rs - 1, c_index + cs - 1))
             doc.add_paragraph()
         elif block.kind == "rule":
             doc.add_paragraph("―" * 30)
@@ -290,27 +392,37 @@ def to_pdf(markdown: str, *, title: str = "업무 인수인계서") -> bytes:
             story.append(Paragraph(_markup(block.runs), style, bulletText=bullet))
         elif block.kind == "table" and block.rows:
             cols = max(len(r) for r in block.rows)
-            # 열 너비: 한글은 영문보다 두 배 넓으므로 표시 폭 기준으로 나누고, 짧은 열도 최소 4글자 폭은 보장한다
-            lengths = [max(_display_width(_plain(r[c])) if c < len(r) else 0 for r in block.rows) for c in range(cols)]
+            merged_across = {(r, c) for (r, c), (rs, cs) in block.spans.items() if cs > 1}
+            # 열 너비: 한글은 영문보다 두 배 넓으므로 표시 폭 기준으로 나누고, 짧은 열도 최소 4글자 폭은 보장한다(여러 열에 걸친 칸은 제외)
+            lengths = [
+                max((_display_width(_plain(r[c])) for ri, r in enumerate(block.rows) if c < len(r) and (ri, c) not in merged_across), default=0)
+                for c in range(cols)
+            ]
             weights = [min(max(n, 9), 70) for n in lengths]
             total = sum(weights) or 1
             widths = [page_width * w / total for w in weights]
             data = []
             for r_index, row in enumerate(block.rows):
-                style = head_cell if r_index == 0 else cell
-                data.append([Paragraph(_markup(row[c]) if c < len(row) else "", style) for c in range(cols)])
-            table = Table(data, colWidths=widths, repeatRows=1)
-            table.setStyle(
-                TableStyle(
-                    [
-                        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#9AA8BD")),
-                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E8EEF7")),
-                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-                        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-                    ]
+                data.append(
+                    [Paragraph(_markup(row[c]) if c < len(row) else "", head_cell if block.is_header(r_index, c) else cell) for c in range(cols)]
                 )
-            )
+            table = Table(data, colWidths=widths, repeatRows=1)
+            commands = [
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#9AA8BD")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ]
+            if block.headers is None:
+                commands.append(("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E8EEF7")))
+            else:
+                commands += [("BACKGROUND", (c, r), (c, r), colors.HexColor("#E8EEF7")) for (r, c) in sorted(block.headers)]
+            for (r, c), (rs, cs) in block.spans.items():
+                commands.append(("SPAN", (c, r), (c + cs - 1, r + rs - 1)))
+            for (r, c), color in block.fills.items():
+                rs, cs = block.spans.get((r, c), (1, 1))
+                commands.append(("BACKGROUND", (c, r), (c + cs - 1, r + rs - 1), colors.HexColor("#" + color)))
+            table.setStyle(TableStyle(commands))
             story += [table, Spacer(1, 6)]
         elif block.kind == "rule":
             story.append(HRFlowable(width="100%", thickness=0.5, color=colors.grey))

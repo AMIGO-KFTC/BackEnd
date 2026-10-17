@@ -213,7 +213,8 @@ def test_leave_mode_session_is_light_and_config_lists_modes(client, sample_dir):
     config = client.get("/api/config").json()
     assert {m["key"] for m in config["modes"]} == {"reassignment", "leave"}
     by_key = {s["key"]: s for s in config["slots"]}
-    assert by_key["dept_notes"]["leave"] is False and by_key["stakeholders"]["leave"] is True
+    assert by_key["dept_notes"]["leave"] is False and by_key["stakeholders"]["leave"] is False
+    assert by_key["systems"]["leave"] is True and by_key["leave_tasks"]["leave"] is True
 
     created = client.post("/api/sessions", json={**PROFILE, "mode": "leave", "task_name": "CD공동망 운영"})
     assert created.status_code == 201 and created.json()["mode"] == "leave" and created.json()["task_name"] == "CD공동망 운영"
@@ -223,4 +224,4 @@ def test_leave_mode_session_is_light_and_config_lists_modes(client, sample_dir):
     wait_for(client, sid, idle)
     assert client.post(f"/api/sessions/{sid}/analyze").status_code == 202
     state = wait_for(client, sid, lambda s: s["status"] == "waiting")
-    assert set(state["session"]["slots"]) == {"stakeholders", "regular", "irregular", "systems"}
+    assert set(state["session"]["slots"]) == {"leave_units", "leave_tasks", "leave_contacts", "systems"}
