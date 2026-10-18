@@ -166,7 +166,7 @@ def test_mock_mode_has_admin_account(tmp_path):
     settings = Settings(data_dir=tmp_path / "real", mock_mode=True, mock_delay=0, workers=2)
     with TestClient(create_app(settings)) as c:
         assert login(c, "admin", "admin1234").json()["user"]["is_admin"] is True
-        assert [u["login_id"] for u in c.get("/api/admin/users").json()["users"]] == ["demo", "admin"]
+        assert [u["login_id"] for u in c.get("/api/admin/users").json()["users"]] == ["demo", "seoyeon.lee", "junho.park", "admin"]
         forgot = c.post("/api/auth/password/forgot", json={"login_id": "demo", "email": "minsu.kim@amigo.example"}).json()
         assert forgot["reset_token"]  # 가상 응답 모드는 메일 대신 응답으로 토큰을 준다
         assert login(c, "demo", "demo1234").json()["user"]["profile"]["department"] == "디지털전략부"

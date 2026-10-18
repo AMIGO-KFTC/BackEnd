@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
@@ -614,3 +614,116 @@ class MailImportResult(Result):
     files: list[SourceOut] = Field(description="새로 등록한 자료(.eml)")
     skipped: list[str] = Field(description="이미 가져와서 건너뛴 메일 제목")
     analysis_scheduled: bool
+
+
+# ---------------------------------------------------------------- 관리자: 팀 인수인계 현황
+
+
+class TeamOut(BaseModel):
+    department: str
+    team: str
+    label: str = Field(description="화면 표시용 '부서 팀명'")
+    member_count: int
+    task_count: int
+    document_count: int
+    completion_rate: float | None = Field(description="인수인계서가 만들어진 단위업무 비율(0~1, 단위업무가 없으면 null)")
+
+
+class TeamsOut(Result):
+    teams: list[TeamOut]
+
+
+class StageCounts(BaseModel):
+    preparing: int = Field(description="자료 준비(분석 전)")
+    analyzing: int = Field(description="AI 분석 중")
+    answering: int = Field(description="질의응답·문서 작성 중")
+    completed: int = Field(description="인수인계서 완성(검토 단계)")
+
+
+class MemberPerformance(BaseModel):
+    user_id: int
+    login_id: str
+    name: str
+    position: str
+    is_admin: bool
+    last_login_at: datetime | None
+    last_activity_at: datetime | None = Field(description="마지막 작업 시각(자료 등록·답변·문서 저장)")
+    task_count: int = Field(description="단위업무 수")
+    document_count: int = Field(description="인수인계서가 만들어진 단위업무 수")
+    completion_rate: float | None = Field(description="작성 완료율 = document_count / task_count")
+    stages: StageCounts
+    source_count: int = Field(description="등록한 자료 수")
+    answer_count: int = Field(description="AI 에 보낸 답변·요청 수")
+    questions_answered: int
+    questions_skipped: int
+    questions_open: int = Field(description="아직 답하지 않은 질문")
+    answer_rate: float | None = Field(description="질문 응답률 = 답함 / (답함 + 건너뜀)")
+    coverage_rate: float | None = Field(description="항목 충족률(장별 충분 1 · 부분 0.5 · 부족 0 의 평균)")
+    ai_versions: int = Field(description="AI 가 쓴 인수인계서 버전 수")
+    user_versions: int = Field(description="직접 수정·복원한 버전 수")
+    avg_hours_to_first_document: float | None = Field(description="단위업무 등록부터 첫 인수인계서까지 평균 시간")
+    cost_usd: float = Field(description="Claude API 추정 비용(USD)")
+
+
+class TeamSummary(BaseModel):
+    member_count: int
+    active_member_count: int = Field(description="단위업무를 하나 이상 등록한 팀원 수")
+    task_count: int
+    document_count: int
+    completion_rate: float | None
+    answer_rate: float | None
+    coverage_rate: float | None
+    avg_hours_to_first_document: float | None
+    user_versions: int
+    cost_usd: float
+
+
+class TeamReportOut(Result):
+    department: str
+    team: str
+    label: str
+    date_from: date | None
+    date_to: date | None
+    summary: TeamSummary
+    members: list[MemberPerformance]
+
+
+class MemberTaskOut(BaseModel):
+    task_id: str
+    session_id: str
+    name: str
+    mode: str
+    stage: str
+    stage_group: str = Field(description="preparing | analyzing | answering | completed")
+    status: str
+    document_version: int
+    has_document: bool
+    source_count: int
+    answer_count: int
+    questions_answered: int
+    questions_skipped: int
+    questions_open: int
+    coverage_rate: float | None
+    ai_versions: int
+    user_versions: int
+    hours_to_first_document: float | None
+    cost_usd: float
+    created_at: datetime
+    last_activity_at: datetime | None
+
+
+class ActivityOut(BaseModel):
+    kind: str = Field(description="task | source | answer | skip | command | document_ai | document_user | document_restore")
+    label: str
+    at: datetime | None
+    task_id: str
+    task_name: str
+    detail: str = Field(description="자료 이름, 문서 버전 등(답변 내용은 담지 않음)")
+
+
+class MemberReportOut(Result):
+    member: MemberPerformance
+    department: str
+    team: str
+    tasks: list[MemberTaskOut]
+    activity: list[ActivityOut] = Field(description="최근 수행 기록(최근순, 최대 50건)")
