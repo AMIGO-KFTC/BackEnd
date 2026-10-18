@@ -64,7 +64,7 @@ def test_demo_account_has_tasks_in_each_state(mock_client):
     assert empty["next_action"] == "upload_files" and empty["file_count"] == 0
 
     doc = mock_client.get(f"/api/sessions/{done['session_id']}/document").json()["markdown"]
-    assert "# 업무 인수인계서" in doc and "| 단위 업무명 | 기관 홈페이지 운영 |" in doc and "내선 2345" in doc and "```mermaid" in doc
+    assert "# 업무 인수인계서" in doc and "| 단위 업무명 | 기관 홈페이지 운영 |" in doc and "내선 2345" in doc and "```mermaid" not in doc  # 관계도 그림은 없다
     assert mock_client.get(f"/api/unit-tasks/{tasks[0]['id']}/files").json()[0]["status"] == "ready"
     assert mock_client.get(f"/api/sessions/{done['session_id']}/download", params={"format": "pdf"}).content.startswith(b"%PDF")
 
@@ -87,7 +87,7 @@ def test_full_flow_with_virtual_ai(mock_client):
     labels = {c["label"] for slot in session["slots"].values() for item in slot["items"] for c in item["citations"]}
     assert labels and all(label.split(" ")[0] in ("업무정의서.pdf", "운영매뉴얼.hwpx") for label in labels)  # 실제로 읽힌 자료만 근거로
     assert "업무정의서.pdf p.1" in labels
-    assert p["questions"]["total"] == 6 and "재무팀" in p["current_question"]["content"]
+    assert p["questions"]["total"] == 6 and "정보보호팀" in p["current_question"]["content"]
 
     # 답변 → 확인 요청 → 고쳐 말하기 → 다시 확인 → 네
     mock_client.post(f"/api/sessions/{sid}/chat", json={"text": "내선 2345 입니다"})
@@ -107,12 +107,23 @@ def test_full_flow_with_virtual_ai(mock_client):
     assert mock_client.post(f"/api/sessions/{sid}/generate").status_code == 202
     p = wait_progress(mock_client, sid, lambda p: p["next_action"] == "review_document")
     doc = mock_client.get(f"/api/sessions/{sid}/document").json()
-    assert doc["version"] == 1 and "내선 2346" in doc["markdown"] and "## 8. 확인 필요 사항" in doc["markdown"]
+    assert doc["version"] == 1 and "내선 2346" in doc["markdown"] and "## 6. 확인 필요 사항" in doc["markdown"]
 
     # 검토 의견 → 문서 v2
     mock_client.post(f"/api/sessions/{sid}/chat", json={"text": "외주 업체 계약은 매년 12월에 갱신합니다"})
     wait_progress(mock_client, sid, lambda p: p["document_version"] == 2 and p["status"] == "waiting")
     assert "외주 업체 계약은 매년 12월에 갱신합니다" in mock_client.get(f"/api/sessions/{sid}/document").json()["markdown"]
+
+    # 화면에서 고친 월별 막대는 계획기간으로 확정되어 조회·다운로드·재생성에 그대로 반영된다
+    before = mock_client.get(f"/api/sessions/{sid}/document").json()
+    name = "개인정보처리방침 개정 반영"
+    edited = mock_client.put(f"/api/sessions/{sid}/document/gantt", json={"name": name, "nth": 0, "months": [2, 3]})
+    assert edited.status_code == 200 and edited.json()["version"] == before["version"]
+    md = edited.json()["markdown"]
+    assert md != before["markdown"] and mock_client.get(f"/api/sessions/{sid}/document").json()["markdown"] == md
+    assert mock_client.get(f"/api/sessions/{sid}/download?format=md").content.decode("utf-8") == md
+    assert mock_client.put(f"/api/sessions/{sid}/document/gantt", json={"name": "없는 업무", "months": [1]}).status_code == 409
+    assert mock_client.put(f"/api/sessions/{sid}/document/gantt", json={"name": name, "months": [13]}).status_code == 422
 
     # 처리 중 중복 요청 거절 등 실제 규칙은 그대로
     assert mock_client.post(f"/api/sessions/{sid}/chat", json={"text": ""}).status_code == 422
@@ -133,7 +144,7 @@ def test_leave_mode_uses_light_template(mock_client):
         if s["status"] == "waiting":
             break
         time.sleep(0.05)
-    assert set(s["slots"]) == {"stakeholders", "regular", "irregular", "systems"}  # 장기휴가(Light) 양식
+    assert set(s["slots"]) == {"leave_units", "leave_tasks", "leave_contacts", "systems"}  # 장기휴가 양식
 
 
 def test_progress_is_visible_with_delay(tmp_path):

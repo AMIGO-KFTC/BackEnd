@@ -83,7 +83,7 @@ DATE_PATTERN = r"^(\d{4}-\d{2}-\d{2})?$"
 class UnitTaskIn(_Stripped):
     name: str = Field(min_length=1, max_length=100, description="단위업무명")
     description: str = Field(default="", max_length=2000, description="업무 설명(선택)")
-    mode: HandoverMode = Field(default="reassignment", description="인계 유형: reassignment=인사발령(6개 장), leave=장기휴가(Light, 4개 장)")
+    mode: HandoverMode = Field(default="reassignment", description="인계 유형: reassignment=인사발령(6개 장), leave=장기휴가(3개 장)")
     successor: str = Field(default="", max_length=100, description="인수자(선택)")
     handover_date: str = Field(default="", pattern=DATE_PATTERN, description="인계 예정일 YYYY-MM-DD(선택)")
 
@@ -134,7 +134,7 @@ class SessionCreate(BaseModel):
     successor: str = Field(default="", max_length=100, description="인수자")
     handover_date: str = Field(default="", max_length=20, description="인계 예정일(YYYY-MM-DD)")
     title: str = Field(default="", max_length=200)
-    mode: Literal["reassignment", "leave"] = Field(default="reassignment", description="인수인계 유형: reassignment=인사발령, leave=장기휴가(Light)")
+    mode: Literal["reassignment", "leave"] = Field(default="reassignment", description="인수인계 유형: reassignment=인사발령, leave=장기휴가")
     task_name: str = Field(default="", max_length=200, description="단위 업무명(업무 단위별로 인수인계서 1건)")
 
     @field_validator("owner_name", "organization", "position", "duties", "successor", "handover_date", "title", "task_name")
@@ -318,6 +318,19 @@ class MyDocument(BaseModel):
 
 class MyDocumentsOut(Result):
     documents: list[MyDocument]
+
+
+class GanttEdit(BaseModel):
+    name: str = Field(min_length=1, max_length=300, description="월별 일정표의 단위 업무명(첫 열)")
+    nth: int = Field(default=0, ge=0, le=100, description="이름이 같은 행이 여럿일 때 몇 번째 행인지(0부터)")
+    months: list[int] = Field(max_length=12, description="막대가 칠해진 달(1~12)")
+
+    @field_validator("months")
+    @classmethod
+    def _valid_months(cls, value: list[int]) -> list[int]:
+        if any(m < 1 or m > 12 for m in value):
+            raise ValueError("월은 1~12 사이여야 합니다.")
+        return sorted(set(value))
 
 
 class Accepted(BaseModel):

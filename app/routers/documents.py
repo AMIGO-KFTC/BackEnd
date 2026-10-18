@@ -11,6 +11,7 @@ import re
 from typing import Literal
 from urllib.parse import quote
 
+from amigo_agent import AgentStateError
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import func, select
@@ -26,6 +27,7 @@ from ..schemas import (
     DocumentVersionOut,
     DocumentVersionsOut,
     DocumentVersionSummary,
+    GanttEdit,
     MyDocument,
     MyDocumentsOut,
 )
@@ -179,6 +181,32 @@ def restore_version(
     return DocumentSaved(
         message=f"v{source.version}을(를) 복원해 v{restored.version}(으)로 저장했습니다.", saved=True, document=_version_out(restored, restored.version)
     )
+
+
+@router.put("/document/gantt", response_model=DocumentOut, summary="월별 일정표 막대 수정(계획기간으로 확정되어 재생성해도 유지)")
+def edit_gantt(session_id: str, body: GanttEdit, db: Session = Depends(get_db), services: Services = Depends(get_services)):
+    """AI 가 일정표를 고쳐 문서를 다시 그린다.
+
+    현재 문서가 AI 초안이면 그 버전을 그 자리에서 고친다(버전 번호 유지). 직접 고친 문서였다면 AI 가 다시 그린 문서를
+    새 버전으로 쌓아, 직접 고친 문서는 버전 기록에 남긴다.
+    """
+    row = load_session(db, session_id)
+    if not row.document_md:
+        raise HTTPException(status_code=404, detail=NO_DOCUMENT)
+    if services.runner.is_busy(session_id):
+        raise HTTPException(status_code=409, detail="AI가 처리 중입니다. 끝난 뒤 다시 시도해 주세요.")
+    try:
+        result = services.agent.edit_gantt(session_id, body.name, body.nth, body.months)
+    except AgentStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    current = latest_version(db, session_id)
+    if current is not None and current.origin == "ai" and current.version == row.document_version:
+        current.markdown = row.document_md = result["markdown"]
+    else:
+        add_version(db, row, result["markdown"], origin="ai", ai_version=int(result["version"]), note="월별 일정표 수정")
+    db.commit()
+    services.runner._sync_snapshot(session_id)  # 같은 문서는 다시 기록하지 않고 단계·상태만 맞춘다
+    return get_document(session_id, db)
 
 
 @router.get("/download", summary="인수인계서 내려받기(version 을 주면 그 버전)")

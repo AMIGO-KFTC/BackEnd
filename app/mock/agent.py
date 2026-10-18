@@ -16,10 +16,10 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from amigo_agent import AgentStateError
+from amigo_agent.edits import apply_gantt_edit
 from amigo_agent.render import render_document
 from amigo_agent.state import evaluate_coverage, item_label
 from amigo_agent.template import COVERAGE_LABELS, SLOT_BY_KEY, STAGE_LABEL, STAGE_NUMBER, slots_for
-from amigo_agent.textkit import josa
 
 from . import scenario
 
@@ -141,6 +141,16 @@ class MockAgent:
                 return self._compose(st, emit)
             self._next(st, emit)
 
+    def edit_gantt(self, thread_id: str, name: str, nth: int, months: list[int]) -> dict[str, Any]:
+        with self._lock(thread_id):
+            st = self._ready(thread_id)
+            if not st["document"]:
+                raise AgentStateError("아직 생성된 인수인계서가 없습니다.")
+            if apply_gantt_edit(st["slots"], name, nth, months) is None:
+                raise AgentStateError("고칠 일정 행을 찾지 못했습니다.")
+            st["document"] = render_document(profile=st["profile"], slots=st["slots"], gaps=st["gaps"], sources=st["sources"], version=st["document_version"])
+            return {"markdown": st["document"], "version": st["document_version"]}
+
     def delete(self, thread_id: str) -> None:
         with self._guard:
             self._states.pop(thread_id, None)
@@ -259,7 +269,7 @@ class MockAgent:
         emit.progress("인수인계서를 작성하고 있어요.", status="running")
         self._sleep(2)
         version = st["document_version"] + 1
-        markdown = render_document(profile=st["profile"], slots=st["slots"], gaps=st["gaps"], extras=self._extras(st), sources=st["sources"], version=version)
+        markdown = render_document(profile=st["profile"], slots=st["slots"], gaps=st["gaps"], sources=st["sources"], version=version)
         st.update(document=markdown, document_version=version, stage="review", pending={})
         emit.document(markdown, version)
         emit.stage("review")
@@ -318,16 +328,6 @@ class MockAgent:
         closing = (f"부족한 부분을 채우기 위해 **한 번에 하나씩** 질문드릴게요(최대 {min(remaining, MAX_QUESTIONS)}개). "
                    "모르는 내용은 '건너뛰기', 관련 파일이 있으면 언제든 첨부해 주세요.") if remaining else "자료만으로 필요한 정보가 충족되었어요. 바로 인수인계서를 작성할게요."
         return f"{head}\n\n" + "\n".join(lines) + f"\n\n{closing}"
-
-    def _extras(self, st: dict) -> dict[str, Any]:
-        p = st["profile"]
-        subject = " ".join(x for x in (p.get("name") or "인계자", p.get("position")) if x)
-        task = p.get("task_name") or p.get("duties") or "담당 업무"
-        counts = {k: len(v["items"]) for k, v in st["slots"].items()}
-        org = p.get("organization") or ""
-        overview = (f"{josa(subject, '은/는')} {org + '에서 ' if org else ''}{josa(task, '을/를')} 담당해 왔습니다. "
-                    f"정기 업무 {counts.get('regular', 0)}건, 비정기 업무 {counts.get('irregular', 0)}건, 이해관계자 {counts.get('stakeholders', 0)}곳과의 관계를 인계합니다.")
-        return {"overview": overview, "key_points": list(scenario.KEY_POINTS)}
 
     # ------------------------------------------------------------------ 도우미
     def _item_id(self, st: dict, gap: dict) -> str:

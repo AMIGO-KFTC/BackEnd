@@ -2,6 +2,7 @@
 
 RAG 의 KnowledgeBase.get_chunks() 를 쓴다. 근거 번호는 AI 렌더러(amigo_agent.render._Citations)와 같은 규칙으로
 매긴다: 양식의 장 순서 → 항목 순서 → 항목의 근거 순서, 같은 (출처 표기, 조각) 은 같은 번호.
+근거 열이 없는 장(`SlotSpec.evidence=False`)과 다른 장 안에 들어가는 장은 번호를 달지 않는다.
 """
 
 from __future__ import annotations
@@ -50,6 +51,8 @@ def number_citations(row: HandoverSession) -> list[dict[str, Any]]:
     slots = row.slots
     numbered: dict[str, dict[str, Any]] = {}
     for spec in _rendered_slots(row):
+        if not spec.evidence or spec.embed_into:  # 근거 번호를 달지 않는 장(업무 단위 요약, 다른 장 안에 들어가는 협업관계)
+            continue
         for item in (slots.get(spec.key) or {}).get("items") or []:
             for c in item.get("citations") or []:
                 key = f"{c.get('label')}|{c.get('chunk_id') or c.get('quote', '')[:40]}"
