@@ -225,3 +225,29 @@ def test_import_mails_into_session_and_rag_reads_them(client):
     client.post("/api/auth/login", json={"login_id": "other", "password": "other-password"})
     assert client.post(f"/api/sessions/{sid}/mails", json={"message_ids": ["m-0001"]}).status_code == 404
     assert client.get(f"/api/mail/messages?session_id={sid}").status_code == 404
+
+
+def test_gantt_edit_keeps_ai_version_or_user_edits(mock_client):
+    import re
+
+    sid = task_by_name(mock_client, "기관 홈페이지 운영")["session_id"]
+    doc = mock_client.get(f"/api/sessions/{sid}/document").json()
+    name = re.search(r"^<tr><td>([^<]+)</td><td", doc["markdown"], re.M).group(1)
+
+    # AI 초안이 현재 문서면 같은 버전을 그 자리에서 고친다
+    first = mock_client.put(f"/api/sessions/{sid}/document/gantt", json={"name": name, "nth": 0, "months": [1, 2]}).json()
+    assert first["version"] == doc["version"] == 1 and first["origin"] == "ai" and first["markdown"] != doc["markdown"]
+    assert mock_client.get(f"/api/sessions/{sid}/document/versions/1").json()["markdown"] == first["markdown"]
+
+    # 직접 고친 문서면 막대만 옮긴 새 버전이 생기고, 직접 쓴 글은 남는다
+    edited = first["markdown"] + "\n\n> 인계자 메모: 직접 쓴 글\n"
+    mock_client.put(f"/api/sessions/{sid}/document", json={"markdown": edited, "base_version": 1})
+    second = mock_client.put(f"/api/sessions/{sid}/document/gantt", json={"name": name, "nth": 0, "months": [5, 6, 7]}).json()
+    assert second["version"] == 3 and second["origin"] == "user" and "인계자 메모: 직접 쓴 글" in second["markdown"]
+    row = re.search(rf"^<tr><td>{re.escape(name)}</td>(.*?)<td>[^<]*</td></tr>$", second["markdown"], re.M).group(1)
+    assert row == "<td></td>" * 4 + '<td class="bar" bgcolor="#7055C8" colspan="3">&nbsp;</td>' + "<td></td>" * 5
+    assert mock_client.get(f"/api/sessions/{sid}/document/versions").json()["versions"][0]["note"] == "월별 일정표 수정"
+
+    # AI 상태와 맞추는 스냅숏 동기화가 직접 고친 문서를 덮어쓰지 않는다
+    mock_client.app.state.services.runner._sync_snapshot(sid)
+    assert mock_client.get(f"/api/sessions/{sid}/document").json()["version"] == 3

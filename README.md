@@ -366,7 +366,7 @@ $env:AMIGO_MOCK_MODE = "true"; powershell -ExecutionPolicy Bypass -File scripts\
 
 | 항목 | 가상 응답 모드에서 |
 |---|---|
-| 데모 계정 | `demo` / `demo1234` (김민수 · 디지털전략부 웹서비스팀 과장). 단위업무 3건이 미리 들어 있음: **문서 완성**(기관 홈페이지 운영) · **질문에 답할 차례**(웹 접근성 관리) · **자료 올리기 전**(유지보수 계약 관리) |
+| 데모 계정 | `demo` / `demo1234` (김민수 · 디지털전략부 웹서비스팀 과장, 이메일 `minsu.kim@amigo.example`), 관리자 `admin` / `admin1234`. 단위업무 3건이 미리 들어 있음: **문서 완성**(기관 홈페이지 운영) · **질문에 답할 차례**(웹 접근성 관리) · **자료 올리기 전**(유지보수 계약 관리) |
 | 회원가입·로그인·프로필·단위업무 | 실제와 같이 동작(검증 규칙·오류 코드 동일). 데이터는 임시 DB 에만 저장 |
 | 파일 업로드 | 형식·크기 검사는 실제와 같고, 내용은 읽지 않고 '읽은 것처럼' 처리. 파일 이름에 `실패` 또는 `fail` 이 들어 있으면 처리 실패(`failed`)를 흉내 냄 |
 | AI 분석·질의응답 | 예시 시나리오(기관 홈페이지 운영)로 장별 진행률 → 분석 요약 → 질문 6개 → 답변 정리 확인 → 문서 생성까지 실제와 같은 메시지·단계로 진행. 답변·고쳐 말하기·"네"·건너뛰기·지금 문서 생성·검토 의견(새 버전) 모두 반응 |
@@ -464,14 +464,16 @@ AI 가 처리 중(`status` 가 `running`)일 때 6)·7) 을 보내면 `409` 가 
 
 모든 응답에 `success`(true/false)와 화면에 그대로 띄울 `message` 가 들어 있습니다.
 실패(4xx)도 `{"success": false, "message": "아이디 또는 비밀번호가 올바르지 않습니다.", "detail": ...}` 모양으로 옵니다.
-`/api/auth/signup`·`/api/auth/login` 을 뺀 아래 API 는 로그인이 필요합니다(쿠키 `amigo_session` 또는 `Authorization: Bearer <token>`, 없으면 `401`).
+`/api/auth/signup`·`/api/auth/login`·`/api/auth/password/*` 를 뺀 아래 API 는 로그인이 필요합니다(쿠키 `amigo_session` 또는 `Authorization: Bearer <token>`, 없으면 `401`).
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
-| POST | `/api/auth/signup` | 회원가입 `{"login_id", "password"(8자 이상), "name"}` (`AMIGO_ALLOW_SIGNUP=false` 면 `403`) |
+| POST | `/api/auth/signup` | 회원가입 `{"login_id", "password"(8자 이상), "name", "email"(선택, 비밀번호 찾기용)}` (`AMIGO_ALLOW_SIGNUP=false` 면 `403`, 같은 이메일이면 `409`) |
 | POST | `/api/auth/login` | 로그인 `{"login_id", "password"}` → `{"success", "message", "name", "user", "token", "expires_at"}` + HttpOnly 쿠키. 실패하면 `401` |
 | POST | `/api/auth/logout` | 로그아웃(로그인 세션 삭제, 쿠키 제거) |
-| GET | `/api/auth/me` | 로그인한 사용자와 프로필 |
+| GET | `/api/auth/me` | 로그인한 사용자와 프로필. `user.is_admin` 으로 관리자인지 안다(로그인 응답의 `user` 에도 있음) |
+| POST | `/api/auth/password/forgot` | 비밀번호 찾기 `{"login_id", "email"}` → 맞으면 재설정 안내(가상 발송). 틀려도 같은 응답 |
+| POST | `/api/auth/password/reset` | 비밀번호 재설정 `{"token", "new_password"}` → 모든 기기 로그아웃, 토큰은 한 번만 |
 | GET / PUT | `/api/profile` | 프로필 조회 / 입력·수정 `{"department", "position", "team", "name"}` |
 | POST | `/api/unit-tasks` | 단위업무 입력 `{"tasks": [{"name", "description", "mode", "successor", "handover_date"}]}` (프로필 먼저, 같은 이름은 `409`). `mode`: `reassignment`(인사발령, 6개 장, 기본) / `leave`(장기휴가 Light, 4개 장) |
 | GET | `/api/unit-tasks[/{task_id}]` | 단위업무 목록 / 상세(`session_id`, 단계, 상태, 파일 수, 문서 버전) |
@@ -482,6 +484,24 @@ AI 가 처리 중(`status` 가 `running`)일 때 6)·7) 을 보내면 `409` 가 
 단위업무마다 인수인계 세션이 하나씩 만들어집니다(응답의 `session_id`). 업로드 뒤 진행 상황 폴링, AI 질문에 답하기,
 문서 생성·내려받기는 아래 세션 API(`/api/sessions/{session_id}/state`, `/chat`, `/generate`, `/download` …)를 그대로 씁니다.
 로그인 계정이 만든 세션은 그 계정만 접근할 수 있습니다(로그인 안 하면 `401`, 다른 계정이면 `404`).
+
+### 마이페이지 · 비밀번호 · 관리자
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/me` | 마이페이지: 내 정보(아이디·이름·이메일·부서·팀명·직위·관리자 여부), 가입·마지막 로그인·비밀번호 변경 시각, 작성 현황(단위업무·인수인계서·버전 수) |
+| PATCH | `/api/me` | **내 정보 수정**: `{"name", "department", "team", "position", "email"}` 중 보낸 항목만 바꿈. 단위업무 인수인계서의 인계자 정보에도 반영. 관리자 권한은 바꿀 수 없음 |
+| PUT | `/api/me/password` | **비밀번호 바꾸기** `{"current_password", "new_password"}` → 지금 기기를 뺀 다른 기기 로그아웃 |
+| GET | `/api/admin/users?q=&admin_only=&page=&size=` | (관리자) 회원 목록: 관리자 여부·가입일·마지막 로그인·단위업무·인수인계서 수 |
+| PATCH | `/api/admin/users/{user_id}/role` | (관리자) 관리자 권한 주기·빼기 `{"is_admin": true}` (자기 권한은 뺄 수 없음) |
+| POST | `/api/admin/users/{user_id}/password-reset` | (관리자) 메일을 받을 수 없는 회원용 재설정 토큰 발급(한 번만 보여 줌) |
+
+- **관리자 권한**은 `users.is_admin` 컬럼입니다. 처음 관리자는 `AMIGO_ADMIN_LOGIN_IDS=admin,minsu.kim` 처럼 아이디를 적고 서버를 켜면 생기고,
+  그 뒤에는 관리자가 위 API 로 주고 뺍니다. 관리자가 아니면 `/api/admin/*` 는 `403` 입니다.
+- **비밀번호 찾기**는 아이디와 등록한 이메일이 맞을 때 재설정 토큰(유효 30분, `AMIGO_PASSWORD_RESET_TTL_MINUTES`)을 만들어
+  `AMIGO_PASSWORD_RESET_URL` 링크로 안내합니다. **아직 실제 메일은 보내지 않습니다**(사내 메일 연동 전, `app/services/accounts.py` 의 `ResetNotifier`).
+  개발할 때는 `AMIGO_EXPOSE_RESET_TOKEN=true`(가상 응답 모드는 자동)로 응답에 토큰을 받아 바로 재설정할 수 있고, 운영에서는 관리자 발급 토큰을 쓰세요.
+- 재설정 토큰은 SHA-256 만 저장하고, 새로 받으면 이전 토큰은 못 쓰며, 비밀번호를 바꾸면 남은 토큰도 지웁니다. 아직 요청 횟수 제한은 없습니다.
 
 ### 대화 진행 상태 · 기록 불러오기
 
@@ -599,9 +619,10 @@ RAG 메일 파서가 보낸 사람·받는 사람·일시·제목을 출처 표�
 
 | 테이블 | 주요 컬럼 |
 |---|---|
-| `users` | id, login_id(소문자, 고유), password_hash(scrypt), name, last_login_at |
+| `users` | id, login_id(소문자, 고유), password_hash(scrypt), name, email, **is_admin(관리자 권한)**, last_login_at, password_changed_at |
 | `user_profiles` | user_id, department(부서), team(팀), position(직위) — 이름은 `users.name` |
 | `auth_sessions` | token_hash(토큰의 SHA-256, 원문은 저장 안 함), user_id, expires_at |
+| `password_resets` | token_hash(재설정 토큰의 SHA-256), user_id, expires_at, used_at, requested_by(self/admin) |
 | `unit_tasks` | id, user_id, **session_id**(단위업무별 인수인계 세션), name, description, sort_order |
 | `file_blobs` | source_id, content_type, sha256, **content(업로드 원본 바이트)** |
 | `conversation_reads` | session_id, user_id, last_read_message_id(읽음 위치), updated_at |
@@ -688,6 +709,10 @@ Word 는 '맑은 고딕'을 동아시아 글꼴로 지정하고, PDF 는 시스�
 | `AMIGO_ALLOW_SIGNUP` | `true` | 회원가입 API 허용 여부 |
 | `AMIGO_COOKIE_SECURE` | `false` | HTTPS 로 서비스할 때 `true`(로그인 쿠키 Secure) |
 | `AMIGO_AUTO_ANALYZE` | `true` | 단위업무 파일 적재가 끝나면 AI 분석 자동 시작 |
+| `AMIGO_ADMIN_LOGIN_IDS` | (없음) | 서버를 켤 때 관리자 권한을 줄 아이디(쉼표로 여러 개) |
+| `AMIGO_PASSWORD_RESET_TTL_MINUTES` | `30` | 비밀번호 재설정 토큰 유효 시간(분) |
+| `AMIGO_PASSWORD_RESET_URL` | `http://localhost:5173/#/reset-password?token={token}` | 재설정 안내에 넣을 화면 주소 |
+| `AMIGO_EXPOSE_RESET_TOKEN` | `false` | 개발용: 비밀번호 찾기 응답에 토큰을 넣음(메일 연동 전). 운영에서는 `false` |
 | `AMIGO_PDF_FONT`, `AMIGO_PDF_FONT_BOLD` | (자동 탐색) | PDF 에 넣을 한글 글꼴(.ttf) 경로 |
 
 AI 에이전트 설정(`AMIGO_EFFORT_*`, `AMIGO_MAX_QUESTIONS` 등)은 [AI README](https://github.com/AMIGO-KFTC/AI#llm-설정-claude),
@@ -700,17 +725,18 @@ ChromaDB 위치는 BackEnd 가 `AMIGO_DATA_DIR/rag` 로 지정하므로 `AMIGO_R
 app/
   main.py           FastAPI 앱: 라우터 등록, /api/health · /api/config, 빌드된 화면 제공
   config.py         설정(AMIGO_ 환경변수, BackEnd/.env)
-  models.py         DB 모델: 사용자 · 프로필 · 로그인 세션 · 단위업무 · 세션 · 등록 자료(원본) · 대화 메시지 · 인수인계서 버전
+  models.py         DB 모델: 사용자(관리자 권한) · 비밀번호 재설정 · 프로필 · 로그인 세션 · 단위업무 · 세션 · 등록 자료(원본) · 대화 메시지 · 인수인계서 버전
   schemas.py        API 요청/응답 스키마(FrontEnd 의 src/types.ts 와 짝)
   security.py       비밀번호 해시(scrypt), 로그인 토큰
   mock/             가상 응답 모드: 예시 시나리오(scenario) · 가짜 AI(agent) · 가짜 지식베이스(kb) · 데모 데이터(seed)
-  routers/          auth(로그인) · profile(프로필) · unit_tasks(단위업무·업무파일) · conversations(진행 상태·기록 불러오기) · evidence(근거 원문)
+  routers/          auth(로그인·비밀번호 찾기) · me(마이페이지·내 정보 수정·비밀번호 바꾸기) · admin(관리자) · profile(프로필) · unit_tasks(단위업무·업무파일) · conversations(진행 상태·기록 불러오기) · evidence(근거 원문)
                     sessions(세션·폴링) · sources(업로드·링크) · chat(분석·대화·생성) · documents(조회·직접 수정·버전·다운로드)
                     mail(메일 조회 API · 메일 가져오기)
   services/
     container.py    DB · 파일 저장소 · 지식베이스(RAG) · 에이전트(AI) · 작업 실행기 조립
     runner.py       백그라운드 작업 실행, 에이전트 이벤트 → DB 기록, 재시작 복구
     checkpointer.py 에이전트(LangGraph) 체크포인트를 DB 에 저장, 예전 SQLite 파일 가져오기
+    accounts.py     비밀번호 바꾸기·재설정 토큰·관리자 권한 부여, 재설정 안내 가상 발송
     documents.py    인수인계서 버전 기록(AI 초안·직접 수정·복원), 예전 문서 옮기기
     mail.py         메일 조회 API 연동(가상 메일함 MockMailProvider), 메일 → .eml 변환
     storage.py      업로드 파일 안전 저장

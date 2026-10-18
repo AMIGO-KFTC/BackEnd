@@ -8,6 +8,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 LOGIN_ID_PATTERN = r"^[A-Za-z0-9._@-]{3,50}$"
+EMAIL_PATTERN = r"^([^@\s]{1,64}@[^@\s]+\.[^@\s]{2,})?$"  # 비우거나(선택) 형식만 확인
 
 
 class _Stripped(BaseModel):
@@ -33,6 +34,7 @@ class SignupIn(_Stripped):
     login_id: str = Field(pattern=LOGIN_ID_PATTERN, description="아이디(영문·숫자·._@- 3~50자)")
     password: str = Field(min_length=8, max_length=128, description="비밀번호(8자 이상)")
     name: str = Field(min_length=1, max_length=50, description="이름")
+    email: str = Field(default="", max_length=254, pattern=EMAIL_PATTERN, description="이메일(선택). 비밀번호 찾기에 쓴다")
 
 
 class LoginIn(_Stripped):
@@ -58,6 +60,8 @@ class UserOut(BaseModel):
     id: int
     login_id: str
     name: str
+    email: str = ""
+    is_admin: bool = Field(default=False, description="관리자 권한. true 면 관리자 페이지(/api/admin)를 쓸 수 있다")
     profile: ProfileOut | None
 
 
@@ -74,6 +78,82 @@ class MeOut(Result):
 
 class ProfileResult(Result):
     profile: ProfileOut
+
+
+# ---------------------------------------------------------------- 마이페이지 · 비밀번호
+
+
+class MyInfoUpdate(_Stripped):
+    """내 정보 수정. 보낸 항목만 바꾼다(빠진 항목은 그대로)."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=50, description="이름")
+    department: str | None = Field(default=None, min_length=1, max_length=100, description="부서")
+    team: str | None = Field(default=None, max_length=100, description="팀명(비우려면 빈 문자열)")
+    position: str | None = Field(default=None, min_length=1, max_length=50, description="직위")
+    email: str | None = Field(default=None, max_length=254, pattern=EMAIL_PATTERN, description="이메일(비우려면 빈 문자열)")
+
+
+class MyStats(BaseModel):
+    unit_tasks: int = Field(description="등록한 단위업무 수")
+    documents: int = Field(description="인수인계서가 만들어진 업무 수")
+    document_versions: int = Field(description="저장된 인수인계서 버전 수(AI 초안·직접 수정 포함)")
+
+
+class MyPageOut(Result):
+    user: UserOut
+    created_at: datetime
+    last_login_at: datetime | None
+    password_changed_at: datetime | None
+    stats: MyStats
+
+
+class PasswordChangeIn(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128, description="지금 비밀번호")
+    new_password: str = Field(min_length=8, max_length=128, description="새 비밀번호(8자 이상)")
+
+
+class PasswordForgotIn(_Stripped):
+    login_id: str = Field(min_length=1, max_length=50, description="아이디")
+    email: str = Field(min_length=3, max_length=254, description="가입할 때(또는 내 정보에) 등록한 이메일")
+
+
+class PasswordForgotOut(Result):
+    expires_in_minutes: int
+    reset_token: str | None = Field(default=None, description="개발용(AMIGO_EXPOSE_RESET_TOKEN·가상 응답 모드)에서만 온다. 운영에서는 메일로만 전달")
+
+
+class PasswordResetIn(BaseModel):
+    token: str = Field(min_length=10, max_length=200, description="재설정 메일의 토큰")
+    new_password: str = Field(min_length=8, max_length=128, description="새 비밀번호(8자 이상)")
+
+
+# ---------------------------------------------------------------- 관리자
+
+
+class AdminUserOut(UserOut):
+    created_at: datetime
+    last_login_at: datetime | None
+    unit_task_count: int
+    document_count: int
+
+
+class AdminUsersOut(Result):
+    users: list[AdminUserOut]
+    total: int
+
+
+class AdminRoleIn(BaseModel):
+    is_admin: bool = Field(description="true 면 관리자 권한을 주고 false 면 뺀다")
+
+
+class AdminUserResult(Result):
+    user: AdminUserOut
+
+
+class AdminResetOut(Result):
+    reset_token: str = Field(description="사용자에게 전달할 재설정 토큰(한 번만 보여 줌)")
+    reset_url: str
+    expires_at: datetime
 
 
 HandoverMode = Literal["reassignment", "leave"]

@@ -1,6 +1,6 @@
 """가상 응답 모드의 데모 데이터: 서버를 켤 때마다 같은 상태로 다시 만든다.
 
-데모 계정 demo / demo1234 (김민수 · 디지털전략부 웹서비스팀 과장)에 진행 단계가 다른 단위업무 3건을 넣어 두어,
+데모 계정 demo / demo1234 (김민수 · 디지털전략부 웹서비스팀 과장, 관리자는 admin / admin1234)에 진행 단계가 다른 단위업무 3건을 넣어 두어,
 화면이 각 상태(문서 완성 / 질문에 답할 차례 / 자료 올리기 전)를 바로 그려 볼 수 있게 한다.
 """
 
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from ..services.container import Services
 
 DEMO_LOGIN, DEMO_PASSWORD = "demo", "demo1234"
+ADMIN_LOGIN, ADMIN_PASSWORD = "admin", "admin1234"  # 관리자 페이지 확인용
 DEMO_FILES = ["업무정의서_웹서비스팀.pdf", "홈페이지_운영매뉴얼.hwpx", "주간회의록_2026-09-22.docx", "시스템_계정목록.xlsx", "재무팀_유지보수대금_요청.eml", "웹접근성_개선계획.pptx"]
 
 
@@ -32,9 +33,12 @@ def seed_demo(services: Services) -> None:
     agent_delay, agent.delay = agent.delay, 0  # 시드는 기다리지 않고 바로 만든다
     try:
         with services.db() as db:
-            user = User(login_id=DEMO_LOGIN, password_hash=hash_password(DEMO_PASSWORD), name="김민수")
+            user = User(login_id=DEMO_LOGIN, password_hash=hash_password(DEMO_PASSWORD), name="김민수", email="minsu.kim@amigo.example")
             user.profile = UserProfile(department="디지털전략부", team="웹서비스팀", position="과장")
             db.add(user)
+            admin = User(login_id=ADMIN_LOGIN, password_hash=hash_password(ADMIN_PASSWORD), name="관리자", email="admin@amigo.example", is_admin=True)
+            admin.profile = UserProfile(department="디지털전략부", team="IT운영팀", position="차장")
+            db.add(admin)
             db.flush()
             plans = [
                 ("기관 홈페이지 운영", "홈페이지 콘텐츠 게시·승인, 메뉴 관리, 유지보수 업체 관리", DEMO_FILES, "document"),

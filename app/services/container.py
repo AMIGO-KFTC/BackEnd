@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import Settings
 from ..models import Base, HandoverSession
+from .accounts import ResetNotifier, promote_admins
 from .checkpointer import DBCheckpointSaver, import_sqlite_checkpoints
 from .documents import backfill_versions
 from .mail import MockMailProvider
@@ -28,7 +29,7 @@ class Services:
         self.mock_dir: Path | None = None
         if settings.mock_mode:  # 가상 응답 모드는 실제 DB·업로드 폴더를 건드리지 않도록 임시 폴더에서 새로 시작한다
             self.mock_dir = Path(tempfile.mkdtemp(prefix="amigo-mock-"))
-            settings = settings.model_copy(update={"data_dir": self.mock_dir, "database_url": ""})
+            settings = settings.model_copy(update={"data_dir": self.mock_dir, "database_url": "", "expose_reset_token": True})
         self.settings = settings
         settings.data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -52,6 +53,8 @@ class Services:
         _add_missing_columns(self.engine)
         self.SessionLocal = sessionmaker(bind=self.engine, expire_on_commit=False)
         backfill_versions(self.SessionLocal)
+        promote_admins(self.SessionLocal, settings.admin_login_id_set)
+        self.reset_notifier = ResetNotifier(settings.password_reset_url, log_token=settings.expose_reset_token)
 
         self.allowed_extensions = supported_extensions()
         self.mail = MockMailProvider()  # 메일 조회 API(지금은 가상 메일함). 실제 메일 시스템을 붙이면 여기만 바꾼다
@@ -183,7 +186,11 @@ def _add_missing_columns(engine) -> None:
                     continue
                 default = column.default.arg if column.default is not None and not callable(column.default.arg) else None
                 ddl = f"ALTER TABLE {table.name} ADD COLUMN {column.name} {column.type.compile(engine.dialect)}"
-                if default is not None:
+                if isinstance(default, bool):
+                    ddl += " DEFAULT TRUE" if default else " DEFAULT FALSE"
+                elif default is not None:
                     ddl += f" DEFAULT {default!r}" if isinstance(default, str) else f" DEFAULT {default}"
                 conn.execute(text(ddl))
+            for index in table.indexes:  # 새 컬럼에 건 인덱스(예: users.email)
+                index.create(conn, checkfirst=True)
 

@@ -32,7 +32,7 @@ from ..schemas import (
     MyDocumentsOut,
 )
 from ..services.container import Services
-from ..services.documents import ORIGIN_LABELS, add_version, latest_version
+from ..services.documents import ORIGIN_LABELS, add_version, latest_version, merge_gantt_rows
 from ..services.exporters import to_docx, to_pdf
 from .deps import current_user, get_db, get_services, load_session, optional_user
 
@@ -184,11 +184,17 @@ def restore_version(
 
 
 @router.put("/document/gantt", response_model=DocumentOut, summary="월별 일정표 막대 수정(계획기간으로 확정되어 재생성해도 유지)")
-def edit_gantt(session_id: str, body: GanttEdit, db: Session = Depends(get_db), services: Services = Depends(get_services)):
+def edit_gantt(
+    session_id: str,
+    body: GanttEdit,
+    db: Session = Depends(get_db),
+    services: Services = Depends(get_services),
+    user: User | None = Depends(optional_user),
+):
     """AI 가 일정표를 고쳐 문서를 다시 그린다.
 
-    현재 문서가 AI 초안이면 그 버전을 그 자리에서 고친다(버전 번호 유지). 직접 고친 문서였다면 AI 가 다시 그린 문서를
-    새 버전으로 쌓아, 직접 고친 문서는 버전 기록에 남긴다.
+    - 현재 문서가 AI 초안이면 그 버전을 그 자리에서 고친다(버전 번호 유지).
+    - 직접 고친 문서였다면 그 문서에 막대(1~12월 칸)만 옮겨 새 버전으로 저장한다(직접 고친 글은 유지).
     """
     row = load_session(db, session_id)
     if not row.document_md:
@@ -199,13 +205,17 @@ def edit_gantt(session_id: str, body: GanttEdit, db: Session = Depends(get_db), 
         result = services.agent.edit_gantt(session_id, body.name, body.nth, body.months)
     except AgentStateError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    rendered = str(result["markdown"])
     current = latest_version(db, session_id)
     if current is not None and current.origin == "ai" and current.version == row.document_version:
-        current.markdown = row.document_md = result["markdown"]
+        current.markdown = row.document_md = rendered
     else:
-        add_version(db, row, result["markdown"], origin="ai", ai_version=int(result["version"]), note="월별 일정표 수정")
+        merged = merge_gantt_rows(row.document_md, rendered)
+        if merged != row.document_md:
+            add_version(db, row, merged, origin="user", based_on=row.document_version, note="월별 일정표 수정", author=user)
+    row.ai_document_md = rendered  # AI 가 다시 그린 문서는 이미 반영했으므로 스냅숏 동기화가 따로 쌓지 않게
     db.commit()
-    services.runner._sync_snapshot(session_id)  # 같은 문서는 다시 기록하지 않고 단계·상태만 맞춘다
+    services.runner._sync_snapshot(session_id)
     return get_document(session_id, db)
 
 
