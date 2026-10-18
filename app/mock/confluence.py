@@ -7,11 +7,13 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any
 
-BASE_URL = "https://confluence.example.go.kr"
+# 가상 컨플루언스 사이트(app/routers/mock_wiki.py, /wiki)로 연결된다. 다른 주소에서 띄울 때는 AMIGO_MOCK_WIKI_URL 로 바꾼다.
+BASE_URL = os.environ.get("AMIGO_MOCK_WIKI_URL", "http://localhost:8000/wiki").rstrip("/")
 
 SPACES: dict[str, str] = {
     "WEB": "웹서비스팀",
