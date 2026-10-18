@@ -519,6 +519,21 @@ AI 가 처리 중(`status` 가 `running`)일 때 6)·7) 을 보내면 `409` 가 
 '처리 완료된 자료인데 지식베이스에 조각이 없는' 경우를 찾아 자동으로 다시 적재합니다(`AMIGO_REINDEX_ON_START`).
 다만 질의응답 중 지식베이스에 저장된 인계자 답변 원문은 원본 파일이 없어 다시 만들 수 없습니다(정리된 내용과 대화 기록은 DB 에 남아 있음).
 
+### 가상 Mattermost · Confluence 연동
+
+실제 Mattermost·Confluence API 는 쓸 수 없어 `app/mock/mattermost.py` · `app/mock/confluence.py` 의 예시 데이터(기관 홈페이지 운영 업무)로
+같은 화면 흐름을 만듭니다. 가상 응답 모드가 아니어도 항상 예시 데이터를 돌려주며, 응답에 `"mock": true` 가 붙습니다.
+실제 연동은 두 모듈의 `list_conversations` / `search_pages` 만 API 호출로 바꾸면 됩니다.
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/integrations/mattermost/conversations?q=&limit=50` | 최근 대화 목록(마지막 메시지 순): 채널·DM·그룹, 참여자, 메시지 수, 마지막 메시지. `q` 는 이름·참여자·메시지 내용 검색 |
+| GET | `/api/integrations/mattermost/conversations/{id}` | 대화 내용(메시지 전체) |
+| GET | `/api/integrations/confluence/search?q=&space=&limit=20` | 제목·본문·라벨에 검색어(띄어쓰기로 여러 개, 모두 포함)가 들어간 페이지. 제목 일치 → 최근 수정 순, `excerpt` 는 검색어 주변 발췌 |
+| GET | `/api/integrations/confluence/pages/{id}` | 페이지 본문(Markdown) |
+
+고른 대화·페이지는 아래 세션 API 로 자료 등록하면 업로드 파일과 같은 방식(DB 원본 + 디스크 사본 → 지식베이스 적재)으로 처리됩니다.
+
 ### 세션 · 자료 · 대화 · 문서
 
 | 메서드 | 경로 | 설명 |
@@ -534,6 +549,8 @@ AI 가 처리 중(`status` 가 `running`)일 때 6)·7) 을 보내면 `409` 가 
 | DELETE | `/api/sessions/{id}` | 세션 삭제(업로드 파일·지식베이스·대화 상태 포함) |
 | POST | `/api/sessions/{id}/upload` | 파일 업로드(multipart `files`, 여러 개) → 백그라운드 적재 |
 | POST | `/api/sessions/{id}/links` | 링크 등록 `{"urls": [...], "link_type": "auto"}` (컨플루언스/나누미/웹) |
+| POST | `/api/sessions/{id}/integrations/mattermost` | **가상 Mattermost** 에서 고른 대화를 자료로 등록 `{"conversation_ids": [...]}` → 대화 원문을 Markdown 자료(`link_type: mattermost`)로 적재. 이미 등록된 대화는 `skipped` 로 건너뜀 |
+| POST | `/api/sessions/{id}/integrations/confluence` | **가상 Confluence** 검색 결과에서 고른 페이지를 자료로 등록 `{"page_ids": [...]}` (`link_type: confluence`) |
 | GET / DELETE | `/api/sessions/{id}/sources[/{source_id}]` | 자료 목록 / 삭제 |
 | POST | `/api/sessions/{id}/analyze` | STAGE 1 분석 시작(다시 분석) |
 | POST | `/api/sessions/{id}/chat` | 답변·검토 의견 `{"text": "..."}` |

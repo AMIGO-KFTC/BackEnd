@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import Settings, get_settings
-from .routers import auth, chat, conversations, documents, evidence, profile, sessions, sources, unit_tasks
+from .routers import auth, chat, conversations, documents, evidence, integrations, profile, sessions, sources, unit_tasks
 from .routers.deps import get_services, guard_session_owner, usage_total
 from .schemas import UsageTotal
 from .services.container import Services
@@ -61,10 +61,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             response.headers["X-AMIGO-Mock"] = "true"
             return response
 
-    for module in (auth, profile, unit_tasks, conversations):
+    for module in (auth, profile, unit_tasks, conversations, integrations):
         app.include_router(module.router)
     for module in (sessions, sources, chat, documents, evidence):  # 로그인 계정이 만든 세션은 그 계정만 접근
         app.include_router(module.router, dependencies=[Depends(guard_session_owner)])
+    app.include_router(integrations.session_router, dependencies=[Depends(guard_session_owner)])
     _install_error_handlers(app)
 
     @app.get("/api/health", tags=["meta"], summary="서버 상태와 연동 점검(DB · RAG · AI)")
