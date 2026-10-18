@@ -611,12 +611,21 @@ RAG 메일 파서가 보낸 사람·받는 사람·일시·제목을 출처 표�
 | POST | `/api/sessions/{id}/integrations/confluence` | **가상 Confluence** 검색 결과에서 고른 페이지를 자료로 등록 `{"page_ids": [...]}` (`link_type: confluence`) |
 | GET / DELETE | `/api/sessions/{id}/sources[/{source_id}]` | 자료 목록 / 삭제 |
 | POST | `/api/sessions/{id}/analyze` | STAGE 1 분석 시작(다시 분석) |
-| POST | `/api/sessions/{id}/chat` | 답변·검토 의견 `{"text": "..."}` |
-| POST | `/api/sessions/{id}/skip` | 현재 질문 건너뛰기 |
+| POST | `/api/sessions/{id}/chat` | 답변·검토 의견 `{"text": "...", "reply_to": <질문 메시지 ID, 선택>}` → 저장 후 AI 에 전달(202). AI 가 입력을 기다리지 않으면 `409`, `reply_to` 질문이 이미 지나갔으면 `409` |
+| POST | `/api/sessions/{id}/skip[?reply_to=]` | 현재 질문 건너뛰기(`reply_to` 규칙은 `/chat` 과 같음) |
 | POST | `/api/sessions/{id}/generate` | 지금 바로 STAGE 4 문서 생성 |
 | POST | `/api/sessions/{id}/retry` | 오류로 멈춘 작업 재시도 |
 | GET / PUT | `/api/sessions/{id}/document` | 현재 인수인계서 조회 / 직접 고친 문서 저장([위](#인수인계서-직접-수정--버전-기록) 참고) |
 | GET | `/api/sessions/{id}/download?format=pdf\|docx\|md[&version=N]` | 인수인계서 내려받기 |
+
+### 답변이 AI 에 전달되는 과정
+
+1. 화면이 `POST /chat {"text", "reply_to"}` 로 답변을 보낸다. `reply_to` 는 화면에 띄운 질문의 메시지 ID(`/state` 메시지 또는 `/api/conversations/{id}` 의 `current_question.message_id`).
+2. BackEnd 가 확인한다: 분석을 시작했는지(아니면 `400`), AI 가 다른 작업 중인지(`409`), AI 가 입력을 기다리는지(아니면 `409`, 오류로 멈췄으면 '다시 시도' 안내),
+   `reply_to` 가 아직 답을 기다리는 질문인지(아니면 `409` — 다른 창에서 먼저 답했거나 새 자료로 질문이 바뀐 경우, 답이 엉뚱한 질문에 붙지 않게).
+3. 답변을 `messages` 에 `role=user, kind=answer` 로 먼저 저장한다. `meta` 에 어떤 질문의 답인지(`reply_to`, `question_kind`, `gap_id`, `slot`)를 남긴다.
+4. 백그라운드에서 에이전트 `send_message()` 로 넘긴다(LangGraph 입력 대기 재개). AI 는 답을 정리해 "이렇게 정리했는데 맞나요?"(`confirm`)를 묻거나 다음 질문(`question`)을 보낸다.
+5. 화면은 `/state?after=` 폴링으로 정리 결과·다음 질문·진행률을 받는다. 에이전트 상태는 체크포인트로 DB 에 저장되므로 서버가 다시 켜져도 이어 간다.
 
 ### 비동기 처리와 폴링 규약
 

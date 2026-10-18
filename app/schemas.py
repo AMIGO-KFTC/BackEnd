@@ -317,7 +317,12 @@ class StateOut(BaseModel):
 
 
 class ChatIn(BaseModel):
-    text: str = Field(min_length=1, max_length=4000)
+    text: str = Field(min_length=1, max_length=4000, description="인계자 답변(질의응답) 또는 검토 의견(문서 검토 단계)")
+    reply_to: int | None = Field(
+        default=None,
+        ge=1,
+        description="답하는 질문의 메시지 ID(화면에 띄운 질문). 주면 그 질문이 아직 답을 기다리는지 확인하고, 그사이 질문이 바뀌었으면 409",
+    )
 
 
 class LinksIn(BaseModel):
