@@ -325,6 +325,24 @@ class LinksIn(BaseModel):
     link_type: Literal["auto", "confluence", "nanumi", "web"] = "auto"
 
 
+class MattermostImportIn(BaseModel):
+    """가상 Mattermost 에서 고른 대화를 인수인계 자료로 등록한다."""
+
+    conversation_ids: list[str] = Field(min_length=1, max_length=20)
+
+
+class ConfluenceImportIn(BaseModel):
+    """가상 Confluence 검색 결과에서 고른 페이지를 인수인계 자료로 등록한다."""
+
+    page_ids: list[str] = Field(min_length=1, max_length=20)
+
+
+class IntegrationImportResult(BaseModel):
+    message: str
+    sources: list[SourceOut]  # 이번에 새로 등록한 자료
+    skipped: list[str] = Field(default_factory=list)  # 이미 등록돼 있어 건너뛴 대화·페이지 이름
+
+
 class DocumentOut(BaseModel):
     """현재 인수인계서(마지막 버전). 사용자가 직접 고쳤으면 고친 문서가 온다."""
 
