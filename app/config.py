@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     workers: int = 4
     session_ttl_hours: int = 12  # 로그인 세션 유효 시간
     allow_signup: bool = True  # 회원가입 API 허용(사내 계정을 미리 넣어 두는 경우 false)
+    team_guideline_editors: str = ""  # 팀 인수인계서 지침을 저장할 수 있는 로그인 아이디(쉼표로 구분). 비우면 로그인한 누구나(개발용)
     cookie_secure: bool = False  # HTTPS 로 서비스할 때 true(로그인 쿠키에 Secure 속성)
     auto_analyze: bool = True  # 단위업무 파일 적재가 끝나면 AI 분석을 자동으로 시작
     # 가상 응답 모드: 실제 파일 분석·AI 호출 없이 예시 데이터로 응답(임시 DB, 서버를 켤 때마다 초기화)
@@ -46,6 +47,10 @@ class Settings(BaseSettings):
     def checkpoint_path(self) -> Path:
         """예전 버전이 에이전트 대화 상태를 따로 저장하던 SQLite 파일. 있으면 시작할 때 DB 로 옮긴다."""
         return self.data_dir / "agent_checkpoints.sqlite"
+
+    @property
+    def team_guideline_editor_ids(self) -> set[str]:
+        return {x.strip().lower() for x in self.team_guideline_editors.split(",") if x.strip()}
 
     @property
     def cors_origin_list(self) -> list[str]:
