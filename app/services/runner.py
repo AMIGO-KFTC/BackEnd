@@ -24,6 +24,7 @@ from amigo_rag import ParseError
 from sqlalchemy import select
 
 from ..models import FileBlob, HandoverSession, Message, Source, UnitTask, utcnow
+from .guidelines import guidelines_for
 
 if TYPE_CHECKING:
     from .container import Services
@@ -102,6 +103,9 @@ class JobRunner:
             row.progress_current, row.progress_total = 0, 6
             db.commit()
             profile = row.profile()
+            guidelines = guidelines_for(db, row.organization)  # 팀 관리자가 정한 인수인계서 지침(없으면 None)
+            if guidelines:
+                profile["team_guidelines"] = guidelines
         kb, agent = self.services.kb(session_id), self.services.agent
         self.run_agent(session_id, "analyze", lambda h: agent.start(session_id, profile, kb, on_event=h), progress="자료를 분석하고 있어요.")
 

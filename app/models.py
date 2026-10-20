@@ -1,4 +1,4 @@
-"""DB 모델: 사용자 · 프로필 · 로그인 세션 · 단위업무 · 인수인계 세션 · 등록 자료(파일 원본) · 대화 메시지 · 대화 진행 상태."""
+"""DB 모델: 사용자 · 프로필 · 팀 인수인계서 지침 · 로그인 세션 · 단위업무 · 인수인계 세션 · 등록 자료(파일 원본) · 대화 메시지 · 대화 진행 상태."""
 
 from __future__ import annotations
 
@@ -54,6 +54,18 @@ class UserProfile(Base):
     @property
     def organization(self) -> str:
         return " ".join(x for x in (self.department, self.team) if x)
+
+
+class TeamGuideline(Base):
+    """팀 인수인계서 지침. 소속(프로필의 부서 + 팀) 하나에 한 행. 관리자가 적은 필수 항목과 팀 특징·작성 지침을 AI 프롬프트에 반영하는 데 쓴다."""
+
+    __tablename__ = "team_guidelines"
+
+    organization: Mapped[str] = mapped_column(String(100), primary_key=True)
+    items_json: Mapped[str] = mapped_column(Text, default="[]")  # [{id, name, instruction, required}]
+    notes: Mapped[str] = mapped_column(Text, default="")
+    updated_by: Mapped[str] = mapped_column(String(50), default="")
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
 
 class AuthSession(Base):

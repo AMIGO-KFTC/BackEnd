@@ -400,3 +400,26 @@ class CitationsOut(BaseModel):
 
 class ReindexResult(Result):
     source_count: int = Field(description="다시 적재하는 자료 수")
+
+
+# ---------------------------------------------------------------- 팀 인수인계서 지침(관리자)
+class TeamGuidelineItem(_Stripped):
+    id: str = Field(default="", max_length=32, description="항목 id(비우면 서버가 만든다)")
+    name: str = Field(min_length=1, max_length=100, description="항목 이름. 예: 외주 관리")
+    instruction: str = Field(default="", max_length=500, description="작성 안내: 이 항목에 무엇을 적어야 하는지")
+    required: bool = Field(default=False, description="필수 항목이면 자료에 없을 때 AI 가 인계자에게 묻는다")
+
+
+class TeamGuidelineIn(_Stripped):
+    items: list[TeamGuidelineItem] = Field(default_factory=list, max_length=30, description="우리 팀 인수인계서에 꼭 들어가야 하는 항목")
+    notes: str = Field(default="", max_length=2000, description="팀 특징·작성 지침(자유 글)")
+
+
+class TeamGuidelineOut(Result):
+    organization: str = Field(description="지침이 적용되는 소속(부서 + 팀)")
+    items: list[TeamGuidelineItem]
+    notes: str
+    updated_at: datetime | None = None
+    updated_by: str = ""
+    editable: bool = Field(description="이 계정이 지침을 저장할 수 있는지")
+    prompt_preview: str = Field(description="AI 프롬프트에 들어가는 문구 미리보기(지침이 비어 있으면 빈 문자열)")

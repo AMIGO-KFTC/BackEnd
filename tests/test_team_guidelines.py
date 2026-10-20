@@ -1,0 +1,133 @@
+"""팀 인수인계서 지침: 관리자가 적은 항목·특징을 저장하고, 그 소속의 AI 분석에 전달한다."""
+
+from conftest import idle, wait_for
+
+ORG = "디지털전략부 웹서비스팀"
+PROFILE = {"department": "디지털전략부", "team": "웹서비스팀", "position": "과장", "name": "김민수"}
+GUIDE = {
+    "items": [
+        {"name": "외주 관리", "instruction": "업체명, 계약 기간, 월 금액", "required": True},
+        {"name": "라이선스", "instruction": "", "required": False},
+    ],
+    "notes": "우리 팀은 매주 월요일 보도자료를 낸다.",
+}
+
+
+def login(client, login_id="minsu.kim", profile=PROFILE, name="김민수"):
+    client.cookies.clear()
+    assert client.post("/api/auth/signup", json={"login_id": login_id, "password": "correct-horse-1", "name": name}).status_code == 201
+    assert client.post("/api/auth/login", json={"login_id": login_id, "password": "correct-horse-1"}).status_code == 200
+    if profile:
+        assert client.put("/api/profile", json={**profile, "name": name}).status_code == 200
+
+
+def test_login_and_profile_are_required(client):
+    assert client.get("/api/team-guidelines/me").status_code == 401
+    assert client.put("/api/team-guidelines/me", json=GUIDE).status_code == 401
+    login(client, profile=None)
+    res = client.get("/api/team-guidelines/me")
+    assert res.status_code == 400 and "프로필" in res.json()["message"]
+    assert client.put("/api/team-guidelines/me", json=GUIDE).status_code == 400
+
+
+def test_empty_then_save_then_read(client):
+    login(client)
+    empty = client.get("/api/team-guidelines/me").json()
+    assert empty["organization"] == ORG and empty["items"] == [] and empty["notes"] == ""
+    assert empty["editable"] is True and empty["prompt_preview"] == "" and empty["updated_at"] is None
+
+    res = client.put("/api/team-guidelines/me", json=GUIDE)
+    saved = res.json()
+    assert res.status_code == 200 and saved["success"] is True and "저장" in saved["message"]
+    assert [i["name"] for i in saved["items"]] == ["외주 관리", "라이선스"]
+    assert all(i["id"] for i in saved["items"]) and saved["items"][0]["required"] is True and saved["items"][1]["required"] is False
+    assert saved["notes"] == GUIDE["notes"] and saved["updated_by"] == "김민수" and saved["updated_at"]
+    # AI 프롬프트에 들어가는 문구를 화면이 미리 보여 줄 수 있다
+    assert "[필수] 외주 관리 — 업체명, 계약 기간, 월 금액" in saved["prompt_preview"] and "매주 월요일 보도자료" in saved["prompt_preview"]
+
+    again = client.get("/api/team-guidelines/me").json()
+    assert again["items"] == saved["items"] and again["notes"] == saved["notes"] and again["prompt_preview"] == saved["prompt_preview"]
+
+    # 항목 id 는 그대로 보내면 유지된다
+    kept = client.put("/api/team-guidelines/me", json={"items": saved["items"], "notes": ""}).json()
+    assert [i["id"] for i in kept["items"]] == [i["id"] for i in saved["items"]] and kept["notes"] == ""
+
+    cleared = client.put("/api/team-guidelines/me", json={"items": [], "notes": ""}).json()
+    assert cleared["items"] == [] and cleared["prompt_preview"] == ""
+
+
+def test_validation(client):
+    login(client)
+    url = "/api/team-guidelines/me"
+    dup = client.put(url, json={"items": [{"name": "외주 관리"}, {"name": " 외주  관리 "}]})
+    assert dup.status_code == 422 and "같은 이름" in dup.json()["message"]
+    assert client.put(url, json={"items": [{"name": "   "}]}).status_code == 422  # 이름이 비면 안 된다
+    assert client.put(url, json={"items": [{"name": "가" * 101}]}).status_code == 422
+    assert client.put(url, json={"items": [{"name": "가", "instruction": "나" * 501}]}).status_code == 422
+    assert client.put(url, json={"items": [{"name": f"항목{i}"} for i in range(31)]}).status_code == 422
+    assert client.put(url, json={"notes": "다" * 2001}).status_code == 422
+    assert client.put(url, json={"items": [{"name": f"항목{i}"} for i in range(30)], "notes": "다" * 2000}).status_code == 200
+    assert client.get(url).json()["items"][0]["name"] == "항목0"  # 실패한 요청은 저장된 값을 바꾸지 않는다
+
+
+def test_guidelines_are_per_team(client):
+    login(client)
+    client.put("/api/team-guidelines/me", json=GUIDE)
+    login(client, "other.user", {"department": "재무부", "team": "회계팀", "position": "대리"}, "박지훈")
+    other = client.get("/api/team-guidelines/me").json()
+    assert other["organization"] == "재무부 회계팀" and other["items"] == [] and other["notes"] == ""
+    client.put("/api/team-guidelines/me", json={"items": [{"name": "예산 집행", "required": True}], "notes": ""})
+    login(client, "same.team", PROFILE, "이서연")  # 같은 소속이면 같은 지침을 본다
+    mine = client.get("/api/team-guidelines/me").json()
+    assert [i["name"] for i in mine["items"]] == ["외주 관리", "라이선스"]
+
+
+def test_only_listed_editors_can_save_when_configured(settings):
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+
+    settings.team_guideline_editors = " Boss ,other"
+    with TestClient(create_app(settings)) as client:
+        login(client, "member")
+        view = client.get("/api/team-guidelines/me").json()
+        assert view["editable"] is False
+        denied = client.put("/api/team-guidelines/me", json=GUIDE)
+        assert denied.status_code == 403 and "권한" in denied.json()["message"]
+        login(client, "boss")  # 아이디는 대소문자를 구분하지 않는다
+        assert client.get("/api/team-guidelines/me").json()["editable"] is True
+        assert client.put("/api/team-guidelines/me", json=GUIDE).status_code == 200
+        login(client, "member2")
+        assert [i["name"] for i in client.get("/api/team-guidelines/me").json()["items"]] == ["외주 관리", "라이선스"]  # 읽기는 모두 가능
+
+
+def test_agent_receives_the_teams_guidelines_when_analysis_starts(client, sample_dir):
+    services = client.app.state.services
+    started: dict[str, dict] = {}
+    original = services.agent.start
+
+    def spy(thread_id, profile, kb, on_event=None):
+        started[thread_id] = dict(profile)
+        return original(thread_id, profile, kb, on_event=on_event)
+
+    services.agent.start = spy
+
+    def run_analysis():
+        task = client.post("/api/unit-tasks", json={"tasks": [{"name": "홈페이지 운영"}]}).json()["tasks"][0]
+        pdf = sample_dir / "업무정의서_웹서비스팀.pdf"
+        res = client.post(f"/api/unit-tasks/{task['id']}/files", files=[("files", (pdf.name, pdf.read_bytes(), "application/octet-stream"))])
+        assert res.status_code == 201 and res.json()["analysis_scheduled"] is True
+        wait_for(client, task["session_id"], lambda s: idle(s) and s["status"] == "waiting")
+        return task["session_id"]
+
+    login(client)
+    client.put("/api/team-guidelines/me", json=GUIDE)
+    mine = run_analysis()
+    guide = started[mine]["team_guidelines"]
+    assert [i["name"] for i in guide["items"]] == ["외주 관리", "라이선스"] and guide["items"][0]["required"] is True
+    assert guide["notes"] == GUIDE["notes"]
+    assert "id" not in guide["items"][0]  # 에이전트에는 프롬프트에 필요한 값만 넘긴다
+
+    login(client, "other.user", {"department": "재무부", "team": "회계팀", "position": "대리"}, "박지훈")
+    theirs = run_analysis()
+    assert "team_guidelines" not in started[theirs]  # 다른 팀의 지침은 섞이지 않고, 지침이 없으면 키 자체가 없다
