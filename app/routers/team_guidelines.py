@@ -79,7 +79,7 @@ def save_my_guidelines(
         if key in seen:
             raise HTTPException(status_code=422, detail=f"같은 이름의 항목이 둘 이상 있습니다: {item.name}")
         seen.add(key)
-        items.append({"id": item.id or uuid.uuid4().hex[:8], "name": " ".join(item.name.split()), "instruction": item.instruction, "required": item.required})
+        items.append({"id": item.id or uuid.uuid4().hex[:8], "name": " ".join(item.name.split()), "instruction": item.instruction})
     row = db.get(TeamGuideline, organization) or TeamGuideline(organization=organization)
     row.items_json = json.dumps(items, ensure_ascii=False)
     row.notes = body.notes

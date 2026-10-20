@@ -6,8 +6,8 @@ ORG = "디지털전략부 웹서비스팀"
 PROFILE = {"department": "디지털전략부", "team": "웹서비스팀", "position": "과장", "name": "김민수"}
 GUIDE = {
     "items": [
-        {"name": "외주 관리", "instruction": "업체명, 계약 기간, 월 금액", "required": True},
-        {"name": "라이선스", "instruction": "", "required": False},
+        {"name": "외주 관리", "instruction": "업체명, 계약 기간, 월 금액"},
+        {"name": "라이선스", "instruction": ""},
     ],
     "notes": "우리 팀은 매주 월요일 보도자료를 낸다.",
 }
@@ -40,10 +40,10 @@ def test_empty_then_save_then_read(client):
     saved = res.json()
     assert res.status_code == 200 and saved["success"] is True and "저장" in saved["message"]
     assert [i["name"] for i in saved["items"]] == ["외주 관리", "라이선스"]
-    assert all(i["id"] for i in saved["items"]) and saved["items"][0]["required"] is True and saved["items"][1]["required"] is False
+    assert all(i["id"] for i in saved["items"]) and "required" not in saved["items"][0]
     assert saved["notes"] == GUIDE["notes"] and saved["updated_by"] == "김민수" and saved["updated_at"]
     # AI 프롬프트에 들어가는 문구를 화면이 미리 보여 줄 수 있다
-    assert "[필수] 외주 관리 — 업체명, 계약 기간, 월 금액" in saved["prompt_preview"] and "매주 월요일 보도자료" in saved["prompt_preview"]
+    assert "- 외주 관리 — 업체명, 계약 기간, 월 금액" in saved["prompt_preview"] and "매주 월요일 보도자료" in saved["prompt_preview"]
 
     again = client.get("/api/team-guidelines/me").json()
     assert again["items"] == saved["items"] and again["notes"] == saved["notes"] and again["prompt_preview"] == saved["prompt_preview"]
@@ -76,7 +76,7 @@ def test_guidelines_are_per_team(client):
     login(client, "other.user", {"department": "재무부", "team": "회계팀", "position": "대리"}, "박지훈")
     other = client.get("/api/team-guidelines/me").json()
     assert other["organization"] == "재무부 회계팀" and other["items"] == [] and other["notes"] == ""
-    client.put("/api/team-guidelines/me", json={"items": [{"name": "예산 집행", "required": True}], "notes": ""})
+    client.put("/api/team-guidelines/me", json={"items": [{"name": "예산 집행"}], "notes": ""})
     login(client, "same.team", PROFILE, "이서연")  # 같은 소속이면 같은 지침을 본다
     mine = client.get("/api/team-guidelines/me").json()
     assert [i["name"] for i in mine["items"]] == ["외주 관리", "라이선스"]
@@ -124,7 +124,7 @@ def test_agent_receives_the_teams_guidelines_when_analysis_starts(client, sample
     client.put("/api/team-guidelines/me", json=GUIDE)
     mine = run_analysis()
     guide = started[mine]["team_guidelines"]
-    assert [i["name"] for i in guide["items"]] == ["외주 관리", "라이선스"] and guide["items"][0]["required"] is True
+    assert [i["name"] for i in guide["items"]] == ["외주 관리", "라이선스"]
     assert guide["notes"] == GUIDE["notes"]
     assert "id" not in guide["items"][0]  # 에이전트에는 프롬프트에 필요한 값만 넘긴다
 

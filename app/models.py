@@ -57,12 +57,12 @@ class UserProfile(Base):
 
 
 class TeamGuideline(Base):
-    """팀 인수인계서 지침. 소속(프로필의 부서 + 팀) 하나에 한 행. 관리자가 적은 필수 항목과 팀 특징·작성 지침을 AI 프롬프트에 반영하는 데 쓴다."""
+    """팀 인수인계서 지침. 소속(프로필의 부서 + 팀) 하나에 한 행. 관리자가 적은 항목과 팀 특징·작성 지침을 AI 프롬프트에 반영하는 데 쓴다."""
 
     __tablename__ = "team_guidelines"
 
     organization: Mapped[str] = mapped_column(String(100), primary_key=True)
-    items_json: Mapped[str] = mapped_column(Text, default="[]")  # [{id, name, instruction, required}]
+    items_json: Mapped[str] = mapped_column(Text, default="[]")  # [{id, name, instruction}]
     notes: Mapped[str] = mapped_column(Text, default="")
     updated_by: Mapped[str] = mapped_column(String(50), default="")
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
