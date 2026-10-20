@@ -131,3 +131,36 @@ def test_agent_receives_the_teams_guidelines_when_analysis_starts(client, sample
     login(client, "other.user", {"department": "재무부", "team": "회계팀", "position": "대리"}, "박지훈")
     theirs = run_analysis()
     assert "team_guidelines" not in started[theirs]  # 다른 팀의 지침은 섞이지 않고, 지침이 없으면 키 자체가 없다
+
+
+def test_organization_key_ignores_separators():
+    from app.services.guidelines import organization_key
+
+    assert organization_key("디지털전략부 웹서비스팀") == organization_key("디지털전략부 · 웹서비스팀") == organization_key("  디지털전략부  ·  웹서비스팀 ") == "디지털전략부 웹서비스팀"
+    assert organization_key("") == organization_key(None) == ""
+
+
+def test_session_started_from_the_screen_gets_the_teams_guidelines(client, sample_dir):
+    """화면의 '새 인수인계 시작' 은 소속을 '부서 · 팀' 으로 보내 세션을 만든다. 프로필 소속('부서 팀')으로 저장한 지침이 그 세션에도 가야 한다."""
+    from conftest import PROFILE as SESSION_PROFILE
+    from conftest import upload
+
+    services = client.app.state.services
+    started: dict[str, dict] = {}
+    original = services.agent.start
+
+    def spy(thread_id, profile, kb, on_event=None):
+        started[thread_id] = dict(profile)
+        return original(thread_id, profile, kb, on_event=on_event)
+
+    services.agent.start = spy
+    login(client)
+    client.put("/api/team-guidelines/me", json=GUIDE)
+    created = client.post("/api/sessions", json={**SESSION_PROFILE, "organization": "디지털전략부 · 웹서비스팀"})
+    assert created.status_code == 201
+    sid = created.json()["id"]
+    assert upload(client, sid, [sample_dir / "업무정의서_웹서비스팀.pdf"]).status_code == 201
+    wait_for(client, sid, lambda s: all(src["status"] in ("ready", "failed") for src in s["sources"]))
+    assert client.post(f"/api/sessions/{sid}/analyze").status_code == 202
+    wait_for(client, sid, lambda s: idle(s) and s["status"] == "waiting")
+    assert [i["name"] for i in started[sid]["team_guidelines"]["items"]] == ["외주 관리", "라이선스"]

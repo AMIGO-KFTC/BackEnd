@@ -7,12 +7,21 @@ AI 에이전트는 인계자 정보(profile)의 team_guidelines 키로 이 값�
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from amigo_agent.prompts import clean_team_guidelines, team_guidelines_block
 from sqlalchemy.orm import Session
 
 from ..models import TeamGuideline
+
+
+_SEPARATORS = re.compile(r"[\s·ㆍ・]+")
+
+
+def organization_key(organization: str) -> str:
+    """소속 문자열을 비교용 키로 만든다. 프로필은 '디지털전략부 웹서비스팀', 화면에서 만든 세션은 '디지털전략부 · 웹서비스팀' 처럼 구분 문자가 달라서 맞춘다."""
+    return _SEPARATORS.sub(" ", organization or "").strip()
 
 
 def stored_items(row: TeamGuideline | None) -> list[dict[str, Any]]:
@@ -36,10 +45,10 @@ def agent_guidelines(row: TeamGuideline | None) -> dict[str, Any] | None:
 
 def guidelines_for(db: Session, organization: str) -> dict[str, Any] | None:
     """소속(부서 + 팀)의 지침을 에이전트가 읽는 모양으로. 소속이 없거나 지침이 비어 있으면 None."""
-    organization = (organization or "").strip()
-    if not organization:
+    key = organization_key(organization)
+    if not key:
         return None
-    return agent_guidelines(db.get(TeamGuideline, organization))
+    return agent_guidelines(db.get(TeamGuideline, key))
 
 
 def prompt_preview(row: TeamGuideline | None) -> str:

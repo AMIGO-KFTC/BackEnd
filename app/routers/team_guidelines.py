@@ -19,7 +19,7 @@ from ..config import Settings
 from ..models import TeamGuideline, User
 from ..schemas import TeamGuidelineIn, TeamGuidelineItem, TeamGuidelineOut
 from ..services.container import Services
-from ..services.guidelines import prompt_preview, stored_items
+from ..services.guidelines import organization_key, prompt_preview, stored_items
 from .deps import current_user, get_db, get_services
 
 router = APIRouter(prefix="/api/team-guidelines", tags=["team-guidelines"])
@@ -29,7 +29,7 @@ NOT_EDITOR = "팀 지침을 수정할 권한이 없습니다. 관리자에게 �
 
 
 def _organization(user: User) -> str:
-    organization = user.profile.organization if user.profile else ""
+    organization = organization_key(user.profile.organization) if user.profile else ""
     if not organization:
         raise HTTPException(status_code=400, detail=NO_ORGANIZATION)
     return organization
