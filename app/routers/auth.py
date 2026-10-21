@@ -1,4 +1,8 @@
-"""로그인: 회원가입, 로그인(세션 생성), 로그아웃, 내 정보."""
+"""로그인: 회원가입, 로그인(세션 생성), 로그아웃, 내 정보, 비밀번호 찾기(재설정).
+
+비밀번호 찾기는 아이디와 등록한 이메일이 맞으면 재설정 토큰을 만들어 안내 메일을 보낸다(지금은 가상 발송).
+아이디나 이메일이 틀려도 같은 응답을 돌려줘 가입 여부를 알 수 없게 한다(개발용 토큰 노출 설정은 예외).
+"""
 
 from __future__ import annotations
 
@@ -9,11 +13,13 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..models import AuthSession, User, utcnow
-from ..schemas import LoginIn, LoginOut, MeOut, Result, SignupIn
+from ..models import AuthSession, PasswordReset, User, utcnow
+from ..schemas import LoginIn, LoginOut, MeOut, PasswordForgotIn, PasswordForgotOut, PasswordResetIn, Result, SignupIn
 from ..security import DUMMY_HASH, hash_password, new_token, token_hash, verify_password
+from ..services.accounts import issue_reset_token, set_password
 from ..services.container import Services
-from .deps import COOKIE_NAME, current_user, get_db, get_services, request_token, user_out
+from .deps import COOKIE_NAME, as_utc, current_user, get_db, get_services, request_token, user_out
+from .me import email_taken
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -27,7 +33,10 @@ def signup(body: SignupIn, db: Session = Depends(get_db), services: Services = D
     login_id = body.login_id.lower()
     if db.scalar(select(User.id).where(User.login_id == login_id)) is not None:
         raise HTTPException(status_code=409, detail="이미 사용 중인 아이디입니다.")
-    user = User(login_id=login_id, password_hash=hash_password(body.password), name=body.name)
+    email = body.email.lower()
+    if email_taken(db, email):
+        raise HTTPException(status_code=409, detail="다른 계정이 쓰고 있는 이메일입니다.")
+    user = User(login_id=login_id, password_hash=hash_password(body.password), name=body.name, email=email)
     db.add(user)
     try:
         db.commit()
@@ -76,3 +85,36 @@ def logout(response: Response, token: str = Depends(request_token), db: Session 
 @router.get("/me", response_model=MeOut, summary="로그인한 사용자 정보와 프로필")
 def me(user: User = Depends(current_user)):
     return MeOut(user=user_out(user))
+
+
+FORGOT_SENT = "입력한 아이디와 이메일이 맞으면 비밀번호 재설정 안내를 보냈습니다. 메일의 안내에 따라 {minutes}분 안에 새 비밀번호를 정해 주세요."
+
+
+@router.post("/password/forgot", response_model=PasswordForgotOut, summary="비밀번호 찾기: 아이디 + 등록한 이메일 → 재설정 안내")
+def forgot_password(body: PasswordForgotIn, db: Session = Depends(get_db), services: Services = Depends(get_services)):
+    settings = services.settings
+    user = db.scalar(select(User).where(User.login_id == body.login_id.lower()))
+    token = None
+    if user is not None and user.email and user.email.lower() == body.email.lower():
+        token, _ = issue_reset_token(db, user, settings.password_reset_ttl_minutes)
+        db.commit()
+        services.reset_notifier.send(user, token)
+    minutes = settings.password_reset_ttl_minutes
+    return PasswordForgotOut(
+        message=FORGOT_SENT.format(minutes=minutes),
+        expires_in_minutes=minutes,
+        reset_token=token if settings.expose_reset_token else None,
+    )
+
+
+@router.post("/password/reset", response_model=Result, summary="비밀번호 재설정: 안내 메일의 토큰 + 새 비밀번호")
+def reset_password(body: PasswordResetIn, db: Session = Depends(get_db)):
+    """재설정하면 모든 기기의 로그인이 끊기고, 토큰은 다시 쓸 수 없다."""
+    reset = db.get(PasswordReset, token_hash(body.token))
+    if reset is None or reset.used_at is not None or as_utc(reset.expires_at) <= utcnow():
+        raise HTTPException(status_code=400, detail="재설정 링크가 만료되었거나 이미 사용되었습니다. 비밀번호 찾기를 다시 해 주세요.")
+    user = reset.user
+    reset.used_at = utcnow()
+    set_password(db, user, body.new_password)
+    db.commit()
+    return Result(message="비밀번호를 새로 정했습니다. 새 비밀번호로 로그인해 주세요.")

@@ -53,6 +53,13 @@ def current_user(user: User | None = Depends(optional_user)) -> User:
     return user
 
 
+def require_admin(user: User = Depends(current_user)) -> User:
+    """관리자 API 공통 검사: 로그인했고 users.is_admin 이 참이어야 한다."""
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="관리자만 쓸 수 있습니다.")
+    return user
+
+
 def get_user_id(x_user_id: str | None = Header(default=None), user: User | None = Depends(optional_user)) -> str:
     """세션 소유자 구분. 로그인했으면 계정 기준, 아니면 프로토타입용 X-User-Id(브라우저가 만든 임의 ID)."""
     if user is not None:
@@ -98,13 +105,6 @@ def is_team_admin(db: Session, user: User, row: HandoverSession) -> bool:
     return organization_key(owner.profile.organization) == organization_key(user.profile.organization)
 
 
-def admin_user(user: User = Depends(current_user)) -> User:
-    """관리자(팀장) 전용 API. 일반 구성원은 403."""
-    if not user.is_admin:
-        raise HTTPException(status_code=403, detail="관리자(팀장)만 쓸 수 있는 기능입니다.")
-    return user
-
-
 def profile_out(user: User) -> ProfileOut | None:
     if user.profile is None:
         return None
@@ -113,7 +113,7 @@ def profile_out(user: User) -> ProfileOut | None:
 
 
 def user_out(user: User) -> UserOut:
-    return UserOut(id=user.id, login_id=user.login_id, name=user.name, role=user.role or "member", profile=profile_out(user))
+    return UserOut(id=user.id, login_id=user.login_id, name=user.name, email=user.email or "", is_admin=bool(user.is_admin), profile=profile_out(user))
 
 
 def load_session(db: Session, session_id: str) -> HandoverSession:

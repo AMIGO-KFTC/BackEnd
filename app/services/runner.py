@@ -24,6 +24,7 @@ from amigo_rag import ParseError
 from sqlalchemy import select
 
 from ..models import FileBlob, HandoverSession, Message, Source, UnitTask, utcnow
+from .documents import record_ai_document
 from .guidelines import guidelines_for
 
 if TYPE_CHECKING:
@@ -134,8 +135,8 @@ class JobRunner:
             row.slots_json = json.dumps(snap["slots"], ensure_ascii=False)
             row.gaps_json = json.dumps(snap["gaps"], ensure_ascii=False)
             row.question_count = snap["question_count"]
-            row.document_md = snap["document"] or row.document_md
-            row.document_version = snap["document_version"] or row.document_version
+            # 이벤트를 놓친 경우만 기록된다(같은 초안은 건너뜀). 사용자가 직접 고친 문서는 덮어쓰지 않는다
+            record_ai_document(db, row, snap["document"] or "", int(snap["document_version"] or 0))
             row.engine = snap["engine"]
             row.status = "waiting" if snap["waiting"] else "idle"
             row.progress_message = ""
@@ -377,8 +378,7 @@ class EventRecorder:
                 row.cache_read_tokens = (row.cache_read_tokens or 0) + int(event.get("cache_read_input_tokens", 0))
                 row.cache_write_tokens = (row.cache_write_tokens or 0) + int(event.get("cache_creation_input_tokens", 0))
                 row.cost_usd = (row.cost_usd or 0.0) + float(event.get("cost_usd", 0.0))
-            elif kind == "document":
-                row.document_md = event.get("markdown", "")
-                row.document_version = int(event.get("version", row.document_version))
+            elif kind == "document":  # AI 초안은 버전 기록에 새 버전으로 쌓는다(번호는 BackEnd 기준)
+                record_ai_document(db, row, str(event.get("markdown") or ""), int(event.get("version") or 0))
             row.updated_at = utcnow()
             db.commit()

@@ -14,11 +14,11 @@ def signup(client, login_id: str, name: str, team: dict, position: str, role: st
     assert client.post("/api/auth/signup", json={"login_id": login_id, "password": PASSWORD, "name": name}).status_code == 201
     login(client, login_id)
     assert client.put("/api/profile", json={**team, "position": position, "name": name}).status_code == 200
-    if role != "member":  # 역할은 회원가입으로 정할 수 없고 DB 에서 지정한다
+    if role == "admin":  # 관리자 권한은 회원가입으로 정할 수 없고 DB(또는 관리자 API)에서 지정한다
         services = client.app.state.services
         with services.db() as db:
             user = db.scalar(select(User).where(User.login_id == login_id))
-            user.role = role
+            user.is_admin = True
             db.commit()
 
 
@@ -48,10 +48,10 @@ def setup_team(client) -> str:
 def test_role_in_login_and_me(client):
     signup(client, "amigoteamjang", "김미고", TEAM_IT, "팀장", role="admin")
     signup(client, "hwan", "최환", TEAM_IT, "계장")
-    assert client.get("/api/auth/me").json()["user"]["role"] == "member"
+    assert client.get("/api/auth/me").json()["user"]["is_admin"] is False
     login(client, "amigoteamjang")
     body = client.post("/api/auth/login", json={"login_id": "amigoteamjang", "password": PASSWORD}).json()
-    assert body["user"]["role"] == "admin"
+    assert body["user"]["is_admin"] is True
 
 
 def test_members_list_requires_login_and_profile(client):
@@ -62,7 +62,7 @@ def test_members_list_requires_login_and_profile(client):
     login(client, "hwan")
     members = client.get("/api/members").json()["members"]
     assert [m["login_id"] for m in members] == ["hwan"]  # 프로필이 없는 계정은 목록에 없다
-    assert members[0]["organization"] == "디지털본부 IT아미고팀" and members[0]["role"] == "member"
+    assert members[0]["organization"] == "디지털본부 IT아미고팀" and members[0]["is_admin"] is False
 
 
 def test_received_handovers_and_read_only_access(client):

@@ -23,7 +23,7 @@ def member_out(user: User) -> MemberOut:
         id=user.id,
         login_id=user.login_id,
         name=user.name,
-        role=user.role or "member",
+        is_admin=bool(user.is_admin),
         department=p.department if p else "",
         team=p.team if p else "",
         position=p.position if p else "",

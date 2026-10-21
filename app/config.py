@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     mock_seed: bool = True  # 데모 계정(demo / demo1234)과 예시 단위업무 3건을 미리 만든다
     reindex_on_start: bool = True  # 시작할 때 지식베이스에서 빠진 자료를 찾아 다시 적재
     llm_budget_usd: float = 0.0  # Claude API 추정 비용 상한(USD, 모든 세션 합계). 0 이면 제한 없음
+    password_reset_ttl_minutes: int = 30  # 비밀번호 재설정 링크 유효 시간(분)
+    password_reset_url: str = "http://localhost:5173/#/reset-password?token={token}"  # 안내 메일에 넣을 화면 주소
+    expose_reset_token: bool = False  # 개발용: 비밀번호 찾기 응답에 재설정 토큰을 그대로 넣는다(메일 발송이 없을 때). 운영에서는 false
 
     @property
     def db_url(self) -> str:

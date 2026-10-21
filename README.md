@@ -366,7 +366,7 @@ $env:AMIGO_MOCK_MODE = "true"; powershell -ExecutionPolicy Bypass -File scripts\
 
 | 항목 | 가상 응답 모드에서 |
 |---|---|
-| 데모 계정 | `demo` / `demo1234` (김민수 · 디지털전략부 웹서비스팀 과장). 단위업무 3건이 미리 들어 있음: **문서 완성**(기관 홈페이지 운영) · **질문에 답할 차례**(웹 접근성 관리) · **자료 올리기 전**(유지보수 계약 관리) |
+| 데모 계정 | `demo` / `demo1234` (김민수 · 디지털전략부 웹서비스팀 과장, 이메일 `minsu.kim@amigo.example`), 관리자 `admin` / `admin1234`. 같은 팀원 `seoyeon.lee`·`junho.park`(비밀번호 `demo1234`)도 있어 관리자 페이지의 팀 현황을 볼 수 있음. 단위업무 3건이 미리 들어 있음: **문서 완성**(기관 홈페이지 운영) · **질문에 답할 차례**(웹 접근성 관리) · **자료 올리기 전**(유지보수 계약 관리) |
 | 회원가입·로그인·프로필·단위업무 | 실제와 같이 동작(검증 규칙·오류 코드 동일). 데이터는 임시 DB 에만 저장 |
 | 파일 업로드 | 형식·크기 검사는 실제와 같고, 내용은 읽지 않고 '읽은 것처럼' 처리. 파일 이름에 `실패` 또는 `fail` 이 들어 있으면 처리 실패(`failed`)를 흉내 냄 |
 | AI 분석·질의응답 | 예시 시나리오(기관 홈페이지 운영)로 장별 진행률 → 분석 요약 → 질문 6개 → 답변 정리 확인 → 문서 생성까지 실제와 같은 메시지·단계로 진행. 답변·고쳐 말하기·"네"·건너뛰기·지금 문서 생성·검토 의견(새 버전) 모두 반응 |
@@ -464,14 +464,16 @@ AI 가 처리 중(`status` 가 `running`)일 때 6)·7) 을 보내면 `409` 가 
 
 모든 응답에 `success`(true/false)와 화면에 그대로 띄울 `message` 가 들어 있습니다.
 실패(4xx)도 `{"success": false, "message": "아이디 또는 비밀번호가 올바르지 않습니다.", "detail": ...}` 모양으로 옵니다.
-`/api/auth/signup`·`/api/auth/login` 을 뺀 아래 API 는 로그인이 필요합니다(쿠키 `amigo_session` 또는 `Authorization: Bearer <token>`, 없으면 `401`).
+`/api/auth/signup`·`/api/auth/login`·`/api/auth/password/*` 를 뺀 아래 API 는 로그인이 필요합니다(쿠키 `amigo_session` 또는 `Authorization: Bearer <token>`, 없으면 `401`).
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
-| POST | `/api/auth/signup` | 회원가입 `{"login_id", "password"(8자 이상), "name"}` (`AMIGO_ALLOW_SIGNUP=false` 면 `403`) |
+| POST | `/api/auth/signup` | 회원가입 `{"login_id", "password"(8자 이상), "name", "email"(선택, 비밀번호 찾기용)}` (`AMIGO_ALLOW_SIGNUP=false` 면 `403`, 같은 이메일이면 `409`) |
 | POST | `/api/auth/login` | 로그인 `{"login_id", "password"}` → `{"success", "message", "name", "user", "token", "expires_at"}` + HttpOnly 쿠키. 실패하면 `401` |
 | POST | `/api/auth/logout` | 로그아웃(로그인 세션 삭제, 쿠키 제거) |
-| GET | `/api/auth/me` | 로그인한 사용자와 프로필 |
+| GET | `/api/auth/me` | 로그인한 사용자와 프로필. `user.is_admin` 으로 관리자인지 안다(로그인 응답의 `user` 에도 있음) |
+| POST | `/api/auth/password/forgot` | 비밀번호 찾기 `{"login_id", "email"}` → 맞으면 재설정 안내(가상 발송). 틀려도 같은 응답 |
+| POST | `/api/auth/password/reset` | 비밀번호 재설정 `{"token", "new_password"}` → 모든 기기 로그아웃, 토큰은 한 번만 |
 | GET / PUT | `/api/profile` | 프로필 조회 / 입력·수정 `{"department", "position", "team", "name"}` |
 | POST | `/api/unit-tasks` | 단위업무 입력 `{"tasks": [{"name", "description", "mode", "successor", "handover_date"}]}` (프로필 먼저, 같은 이름은 `409`). `mode`: `reassignment`(인사발령, 6개 장, 기본) / `leave`(장기휴가 Light, 4개 장) |
 | GET | `/api/unit-tasks[/{task_id}]` | 단위업무 목록 / 상세(`session_id`, 단계, 상태, 파일 수, 문서 버전) |
@@ -482,6 +484,36 @@ AI 가 처리 중(`status` 가 `running`)일 때 6)·7) 을 보내면 `409` 가 
 단위업무마다 인수인계 세션이 하나씩 만들어집니다(응답의 `session_id`). 업로드 뒤 진행 상황 폴링, AI 질문에 답하기,
 문서 생성·내려받기는 아래 세션 API(`/api/sessions/{session_id}/state`, `/chat`, `/generate`, `/download` …)를 그대로 씁니다.
 로그인 계정이 만든 세션은 그 계정만 접근할 수 있습니다(로그인 안 하면 `401`, 다른 계정이면 `404`).
+
+### 마이페이지 · 비밀번호 · 관리자
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/me` | 마이페이지: 내 정보(아이디·이름·이메일·부서·팀명·직위·관리자 여부), 가입·마지막 로그인·비밀번호 변경 시각, 작성 현황(단위업무·인수인계서·버전 수) |
+| PATCH | `/api/me` | **내 정보 수정**: `{"name", "department", "team", "position", "email"}` 중 보낸 항목만 바꿈. 단위업무 인수인계서의 인계자 정보에도 반영. 관리자 권한은 바꿀 수 없음 |
+| PUT | `/api/me/password` | **비밀번호 바꾸기** `{"current_password", "new_password"}` → 지금 기기를 뺀 다른 기기 로그아웃 |
+| GET | `/api/admin/users?q=&admin_only=&page=&size=` | (관리자) 회원 목록: 관리자 여부·가입일·마지막 로그인·단위업무·인수인계서 수 |
+| PATCH | `/api/admin/users/{user_id}/role` | (관리자) 관리자 권한 주기·빼기 `{"is_admin": true}` (자기 권한은 뺄 수 없음) |
+| POST | `/api/admin/users/{user_id}/password-reset` | (관리자) 메일을 받을 수 없는 회원용 재설정 토큰 발급(한 번만 보여 줌) |
+| GET | `/api/admin/teams` | (관리자) 팀 목록: 프로필의 부서·팀명별 팀원 수, 단위업무 수, 인수인계서 수, 작성 완료율 |
+| GET | `/api/admin/teams/report?department=&team=&date_from=&date_to=` | (관리자) **팀 인수인계 현황**: 팀 합계와 팀원별 작성 수행 기록·성과(아래 지표). 기간은 단위업무 등록일 기준 |
+| GET | `/api/admin/members/{user_id}/report` | (관리자) 팀원 상세: 단위업무별 진행 단계·질문·충족률·버전, 최근 수행 기록(단위업무 등록·자료 등록·답변·문서 작성/수정, 최근 50건, 답변 내용은 빼고) |
+
+- **팀 인수인계 현황 지표**(팀원별, 팀 합계도 같은 기준)
+  - 진행 단계: 자료 준비 · AI 분석 중 · 질의응답/작성 중 · 완성(검토 단계)별 단위업무 수
+  - 작성 완료율 = 인수인계서가 만들어진 단위업무 / 전체 단위업무
+  - 질문 응답률 = 답한 질문 / (답한 + 건너뛴 질문), 남은 질문 수
+  - 항목 충족률 = 분석이 끝난 단위업무의 장별 충족도 평균(충분 1 · 부분 0.5 · 부족 0)
+  - 첫 문서까지 걸린 시간 = 단위업무 등록부터 첫 인수인계서까지(평균, 시간)
+  - 등록 자료 수 · 답변 수 · AI 버전 수 · 직접 수정 버전 수 · 마지막 작업 시각 · Claude API 추정 비용
+  - 계산은 `app/services/reports.py` 에 있습니다.
+- **관리자 권한**은 `users.is_admin` 컬럼입니다. 관리자가 아니면 `/api/admin/*` 는 `403` 입니다.
+  처음 관리자는 DB 에서 직접 지정하고(예: `UPDATE users SET is_admin = TRUE WHERE login_id = 'minsu.kim';`, SQLite 는 `TRUE` 대신 `1`),
+  그 뒤에는 관리자가 위 API 로 주고 뺍니다. 가상 응답 모드에는 관리자 계정 `admin` / `admin1234` 가 미리 있습니다.
+- **비밀번호 찾기**는 아이디와 등록한 이메일이 맞을 때 재설정 토큰(유효 30분, `AMIGO_PASSWORD_RESET_TTL_MINUTES`)을 만들어
+  `AMIGO_PASSWORD_RESET_URL` 링크로 안내합니다. **아직 실제 메일은 보내지 않습니다**(사내 메일 연동 전, `app/services/accounts.py` 의 `ResetNotifier`).
+  개발할 때는 `AMIGO_EXPOSE_RESET_TOKEN=true`(가상 응답 모드는 자동)로 응답에 토큰을 받아 바로 재설정할 수 있고, 운영에서는 관리자 발급 토큰을 쓰세요.
+- 재설정 토큰은 SHA-256 만 저장하고, 새로 받으면 이전 토큰은 못 쓰며, 비밀번호를 바꾸면 남은 토큰도 지웁니다. 아직 요청 횟수 제한은 없습니다.
 
 ### 대화 진행 상태 · 기록 불러오기
 
@@ -506,6 +538,64 @@ AI 가 처리 중(`status` 가 `running`)일 때 6)·7) 을 보내면 `409` 가 
 | `questions` | 질문한 수 · 답변 정리된 빈 항목 · 건너뛴 항목 · 남은 항목 · 전체 |
 | `message_count`, `last_message`, `last_activity_at` | 대화 규모와 마지막 활동 |
 | `last_read_message_id`, `unread_count` | 마지막으로 읽은 위치와 그 뒤 AI 가 보낸 새 메시지 수(AI 는 백그라운드로 일하므로 자리를 비운 사이 쌓인 메시지를 알 수 있음) |
+
+### 인수인계서 직접 수정 · 버전 기록
+
+AI 가 만든 초안과 사용자가 화면에서 직접 고친 문서를 모두 `document_versions` 에 **버전으로 쌓습니다.**
+`GET /document` 는 항상 마지막 버전(직접 고쳤으면 고친 문서)을 돌려주므로, 다시 접속해도 고친 문서가 그대로 열립니다.
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/sessions/{id}/document` | 현재 인수인계서: `markdown`, `version`, `origin`(`ai`/`user`/`restore`), `origin_label`, `author_name`, `updated_at`, `version_count` |
+| PUT | `/api/sessions/{id}/document` | 직접 고친 문서 저장 `{"markdown": "...", "base_version": 3, "note": "선택"}` → 새 버전. 그사이 버전이 바뀌었으면 `409`(덮어쓰기 방지), AI 처리 중이면 `409`, 내용이 같으면 `saved: false` |
+| GET | `/api/sessions/{id}/document/versions` | 버전 기록(최신순, 본문 제외): 번호·출처(AI 작성/직접 수정/복원)·AI 초안 번호·기준 버전·메모·작성자·시각·현재 여부 |
+| GET | `/api/sessions/{id}/document/versions/{version}` | 특정 버전 본문 |
+| POST | `/api/sessions/{id}/document/versions/{version}/restore` | 이전 버전을 현재 문서로 복원(복원도 새 버전) `{"base_version": 4}` |
+| GET | `/api/sessions/{id}/download?format=pdf\|docx\|md&version=2` | `version` 을 주면 그 버전을 내려받음(비우면 현재 문서) |
+| GET | `/api/documents` | 로그인 계정이 지금까지 작성한 인수인계서 목록(단위업무·현재 버전·버전 수·최근 수정 시각) |
+
+- 버전 번호는 세션 안에서 1부터 이어지는 BackEnd 기준 번호입니다(AI 초안 → 직접 수정 → AI 재작성 순으로 v1, v2, v3).
+  AI 가 매긴 초안 번호는 `ai_version` 에 따로 남습니다.
+- 직접 고친 뒤 채팅으로 수정을 요청하면 AI 는 정리된 내용(슬롯)으로 **새 초안**을 씁니다. 직접 고친 문서는 버전 기록에 남아 있어 복원할 수 있습니다.
+- 저장·복원하면 대화 기록에 안내 메시지(`system`/`info`)가 남습니다.
+- 이 기능 이전에 만든 문서(`sessions.document_md`)는 서버를 시작할 때 첫 버전으로 옮겨집니다.
+
+### 인수인계서 전송(인계자 → 인수자) · 인수받은 내용
+
+인계자가 **인수자 이름**을 입력해 자기 인수인계서를 보내면, 인수자는 마이페이지 **'인수받은 내용'**(인수 현황)에서 받은 산출물을 봅니다.
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/users/recipients?q=` | 인수자 찾기: 이름(일부)으로 회원 검색, 동명이인을 구별하도록 부서·팀·직위 포함(본인 제외) |
+| POST | `/api/sessions/{id}/transfers` | 보내기 `{"recipient_name": "이서연", "message": "선택"}`. 이름이 같은 회원이 여럿이면 `409` + `detail.candidates` → 고른 `{"recipient_id": N}` 으로 다시 보냄. 문서가 없으면 `400`, 없는 이름이면 `404`, 본인은 `400` |
+| GET | `/api/sessions/{id}/transfers` | 이 인수인계서를 보낸 기록(받는 사람·읽음 여부) |
+| GET | `/api/me/sent` | 내가 보낸 인수인계서 전체 |
+| GET | `/api/me/received?q=&unread_only=` | **인수받은 내용(인수 현황)**: 받은 인수인계서 목록, 보낸 사람(소속·직위)·업무명·버전·남긴 말·받은 시각·읽음 여부, `unread_count` |
+| GET | `/api/me/received/{transfer_id}` | 받은 산출물 보기(Markdown). 처음 열면 읽음 처리 |
+| GET | `/api/me/received/{transfer_id}/download?format=pdf\|docx\|md` | 받은 산출물 내려받기 |
+
+- 보낸 시점의 문서를 복사해 둡니다(`handover_transfers`). 인계자가 나중에 고쳐도 인수자는 받은 그대로 보고, 고친 문서는 다시 보내면 새로 쌓입니다.
+- 인계자가 단위업무를 지워도 받은 문서는 남습니다. 인수자는 인계자의 작업(세션)에는 들어갈 수 없고 받은 문서만 봅니다.
+- 보내면 인계자 대화 기록에 안내가 남고, 인수자 칸이 비어 있으면 받는 사람 이름으로 채웁니다.
+- `/api/me` 의 `stats` 에 보낸 수(`sent_transfers`)·받은 수(`received_transfers`)·안 읽은 수(`received_unread`)가 있어 '인수받은 내용' 배지에 씁니다.
+- 가상 응답 모드: 이서연이 '모바일 웹 운영' 인수인계서를 김민수(`demo`)에게 보내 둔 상태로 시작합니다.
+
+### 메일 조회 API (가상 메일함)
+
+업무 자료를 올릴 때 메일함에서 업무 메일을 찾아 골라 가져옵니다. 지금은 실제 메일 서버 대신 **가상 메일 조회 API**
+(`app/services/mail.py` 의 `MockMailProvider`, 예시 메일 22건)를 연결해 두었고, 메일함은 로그인 계정 기준입니다(`<아이디>@amigo.example`).
+실제 메일 시스템을 붙일 때는 같은 메서드(`search`, `get`)를 가진 클래스를 만들어 `Services.mail` 만 바꾸면 됩니다.
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/mail/messages?q=&sender=&folder=inbox\|sent&date_from=&date_to=&has_attachments=&task_id=&session_id=&page=1&size=20` | 메일 목록. `task_id`(또는 `session_id`)를 주면 단위업무 낱말로 **관련도순** 정렬(`relevance`, `recommended`)하고 이미 가져온 메일은 `imported: true` |
+| GET | `/api/mail/messages/{message_id}` | 메일 상세(본문·참조·첨부 목록) |
+| POST | `/api/unit-tasks/{task_id}/mails` | 고른 메일 가져오기 `{"message_ids": ["m-0001", ...]}`(최대 20건) → 파일 업로드와 똑같이 적재, 끝나면 AI 분석 자동 시작 |
+| POST | `/api/sessions/{id}/mails` | 세션 흐름에서 가져오기(분석이 끝난 세션이면 새 자료로 재분석) |
+
+가져온 메일은 표준 `.eml`(본문 + 첨부)로 만들어 업로드 파일과 같이 원본은 `file_blobs`, 파싱용 사본은 디스크에 둡니다.
+자료 목록에서는 `kind: "file"`, `link_type: "mail"`, `url: "mail:<메일 ID>"` 로 구분되고, 같은 메일은 두 번 가져오지 않습니다(`skipped`).
+RAG 메일 파서가 보낸 사람·받는 사람·일시·제목을 출처 표기로 쓰고 지원 형식의 첨부파일도 함께 읽습니다.
 
 ### 근거 원문 · 지식베이스
 
@@ -588,12 +678,21 @@ AI 쪽(`AI/src/amigo_agent/prompts.py` 의 `team_guidelines_block`)이 이를 �
 | POST | `/api/sessions/{id}/integrations/confluence` | **가상 Confluence** 검색 결과에서 고른 페이지를 자료로 등록 `{"page_ids": [...]}` (`link_type: confluence`) |
 | GET / DELETE | `/api/sessions/{id}/sources[/{source_id}]` | 자료 목록 / 삭제 |
 | POST | `/api/sessions/{id}/analyze` | STAGE 1 분석 시작(다시 분석) |
-| POST | `/api/sessions/{id}/chat` | 답변·검토 의견 `{"text": "..."}` |
-| POST | `/api/sessions/{id}/skip` | 현재 질문 건너뛰기 |
+| POST | `/api/sessions/{id}/chat` | 답변·검토 의견 `{"text": "...", "reply_to": <질문 메시지 ID, 선택>}` → 저장 후 AI 에 전달(202). AI 가 입력을 기다리지 않으면 `409`, `reply_to` 질문이 이미 지나갔으면 `409` |
+| POST | `/api/sessions/{id}/skip[?reply_to=]` | 현재 질문 건너뛰기(`reply_to` 규칙은 `/chat` 과 같음) |
 | POST | `/api/sessions/{id}/generate` | 지금 바로 STAGE 4 문서 생성 |
 | POST | `/api/sessions/{id}/retry` | 오류로 멈춘 작업 재시도 |
-| GET | `/api/sessions/{id}/document` | 생성된 인수인계서(Markdown) |
-| GET | `/api/sessions/{id}/download?format=pdf\|docx\|md` | 인수인계서 내려받기 |
+| GET / PUT | `/api/sessions/{id}/document` | 현재 인수인계서 조회 / 직접 고친 문서 저장([위](#인수인계서-직접-수정--버전-기록) 참고) |
+| GET | `/api/sessions/{id}/download?format=pdf\|docx\|md[&version=N]` | 인수인계서 내려받기 |
+
+### 답변이 AI 에 전달되는 과정
+
+1. 화면이 `POST /chat {"text", "reply_to"}` 로 답변을 보낸다. `reply_to` 는 화면에 띄운 질문의 메시지 ID(`/state` 메시지 또는 `/api/conversations/{id}` 의 `current_question.message_id`).
+2. BackEnd 가 확인한다: 분석을 시작했는지(아니면 `400`), AI 가 다른 작업 중인지(`409`), AI 가 입력을 기다리는지(아니면 `409`, 오류로 멈췄으면 '다시 시도' 안내),
+   `reply_to` 가 아직 답을 기다리는 질문인지(아니면 `409` — 다른 창에서 먼저 답했거나 새 자료로 질문이 바뀐 경우, 답이 엉뚱한 질문에 붙지 않게).
+3. 답변을 `messages` 에 `role=user, kind=answer` 로 먼저 저장한다. `meta` 에 어떤 질문의 답인지(`reply_to`, `question_kind`, `gap_id`, `slot`)를 남긴다.
+4. 백그라운드에서 에이전트 `send_message()` 로 넘긴다(LangGraph 입력 대기 재개). AI 는 답을 정리해 "이렇게 정리했는데 맞나요?"(`confirm`)를 묻거나 다음 질문(`question`)을 보낸다.
+5. 화면은 `/state?after=` 폴링으로 정리 결과·다음 질문·진행률을 받는다. 에이전트 상태는 체크포인트로 DB 에 저장되므로 서버가 다시 켜져도 이어 간다.
 
 ### 비동기 처리와 폴링 규약
 
@@ -613,16 +712,19 @@ AI 쪽(`AI/src/amigo_agent/prompts.py` 의 `team_guidelines_block`)이 이를 �
 
 | 테이블 | 주요 컬럼 |
 |---|---|
-| `users` | id, login_id(소문자, 고유), password_hash(scrypt), name, **role**(admin = 팀 관리자 / member), last_login_at |
+| `users` | id, login_id(소문자, 고유), password_hash(scrypt), name, email, **is_admin(관리자 권한)**, last_login_at, password_changed_at |
 | `user_profiles` | user_id, department(부서), team(팀), position(직위) — 이름은 `users.name` |
 | `auth_sessions` | token_hash(토큰의 SHA-256, 원문은 저장 안 함), user_id, expires_at |
+| `handover_transfers` | id, session_id(인계 세션, 지우면 NULL), sender_id, recipient_id, title, task_name, 보낸 사람 소속·직위, document_version, **markdown(보낸 시점 문서)**, message, created_at, read_at |
+| `password_resets` | token_hash(재설정 토큰의 SHA-256), user_id, expires_at, used_at, requested_by(self/admin) |
 | `unit_tasks` | id, user_id, **session_id**(단위업무별 인수인계 세션), name, description, sort_order |
 | `file_blobs` | source_id, content_type, sha256, **content(업로드 원본 바이트)** |
 | `conversation_reads` | session_id, user_id, last_read_message_id(읽음 위치), updated_at |
 | `agent_checkpoints` | thread_id(=세션 ID), checkpoint_id, parent_checkpoint_id, checkpoint(직렬화된 에이전트 상태), metadata |
 | `agent_checkpoint_writes` | thread_id, checkpoint_id, task_id, idx, channel, value(병렬 노드 결과·입력 대기 같은 중간 기록) |
 | `sessions` | id, user_id, 인계자 기초 정보(successor, **successor_login_id** = 인수자 계정), **stage, status, progress**, error, engine, slots_json, gaps_json, question_count, document_md, document_version |
-| `sources` | id(=RAG source_id), session_id, kind(file/link), name, stored_path/url, link_type, size, status(pending/processing/ready/failed), error, chunk_count, warnings |
+| `document_versions` | session_id, **version**(세션 안 번호), origin(ai/user/restore), ai_version, based_on, markdown, note, author_id, author_name, created_at |
+| `sources` | id(=RAG source_id), session_id, kind(file/link), name, stored_path/url, link_type(메일에서 가져오면 mail), size, status(pending/processing/ready/failed), error, chunk_count, warnings |
 | `messages` | id(증가 커서), session_id, role(user/assistant/system), kind, content, meta_json, created_at |
 
 단위업무는 테이블을 새로 만들지 않고 `unit_tasks` 의 행 하나 + 전용 `sessions` 행 하나로 나눕니다.
@@ -635,7 +737,8 @@ AI 쪽(`AI/src/amigo_agent/prompts.py` 의 `team_guidelines_block`)이 이를 �
 | 저장하는 것 | 테이블 |
 |---|---|
 | 주고받은 메시지(질문·답변·확인·안내) | `messages` |
-| 단계·상태·진행률, 장별 충족 현황, 빈 항목(질문 대상), 질문 수, 인수인계서 | `sessions` |
+| 단계·상태·진행률, 장별 충족 현황, 빈 항목(질문 대상), 질문 수, 현재 인수인계서 | `sessions` |
+| 인수인계서 버전 기록(AI 초안·직접 수정·복원) | `document_versions` |
 | 에이전트가 멈춘 지점(현재 질문, 확인 대기 중인 답변, 다음에 실행할 노드) | `agent_checkpoints`, `agent_checkpoint_writes` |
 | 사용자가 어디까지 읽었는지 | `conversation_reads` |
 
@@ -701,6 +804,9 @@ Word 는 '맑은 고딕'을 동아시아 글꼴로 지정하고, PDF 는 시스�
 | `AMIGO_TEAM_GUIDELINE_EDITORS` | (비움) | 팀 인수인계서 지침을 저장할 수 있는 로그인 아이디(쉼표 구분, 대소문자 무시). 비우면 로그인한 누구나 자기 소속의 지침을 저장할 수 있으니 운영 때는 꼭 정하세요 |
 | `AMIGO_COOKIE_SECURE` | `false` | HTTPS 로 서비스할 때 `true`(로그인 쿠키 Secure) |
 | `AMIGO_AUTO_ANALYZE` | `true` | 단위업무 파일 적재가 끝나면 AI 분석 자동 시작 |
+| `AMIGO_PASSWORD_RESET_TTL_MINUTES` | `30` | 비밀번호 재설정 토큰 유효 시간(분) |
+| `AMIGO_PASSWORD_RESET_URL` | `http://localhost:5173/#/reset-password?token={token}` | 재설정 안내에 넣을 화면 주소 |
+| `AMIGO_EXPOSE_RESET_TOKEN` | `false` | 개발용: 비밀번호 찾기 응답에 토큰을 넣음(메일 연동 전). 운영에서는 `false` |
 | `AMIGO_PDF_FONT`, `AMIGO_PDF_FONT_BOLD` | (자동 탐색) | PDF 에 넣을 한글 글꼴(.ttf) 경로 |
 
 AI 에이전트 설정(`AMIGO_EFFORT_*`, `AMIGO_MAX_QUESTIONS` 등)은 [AI README](https://github.com/AMIGO-KFTC/AI#llm-설정-claude),
@@ -713,16 +819,21 @@ ChromaDB 위치는 BackEnd 가 `AMIGO_DATA_DIR/rag` 로 지정하므로 `AMIGO_R
 app/
   main.py           FastAPI 앱: 라우터 등록, /api/health · /api/config, 빌드된 화면 제공
   config.py         설정(AMIGO_ 환경변수, BackEnd/.env)
-  models.py         DB 모델: 사용자 · 프로필 · 로그인 세션 · 단위업무 · 세션 · 등록 자료(원본) · 대화 메시지
+  models.py         DB 모델: 사용자(관리자 권한) · 비밀번호 재설정 · 프로필 · 로그인 세션 · 단위업무 · 세션 · 등록 자료(원본) · 대화 메시지 · 인수인계서 버전
   schemas.py        API 요청/응답 스키마(FrontEnd 의 src/types.ts 와 짝)
   security.py       비밀번호 해시(scrypt), 로그인 토큰
   mock/             가상 응답 모드: 예시 시나리오(scenario) · 가짜 AI(agent) · 가짜 지식베이스(kb) · 데모 데이터(seed)
-  routers/          auth(로그인) · profile(프로필) · handovers(구성원·받은 인수인계) · admin(팀장: 구성원·팀 인수인계) · unit_tasks(단위업무·업무파일) · conversations(진행 상태·기록 불러오기) · evidence(근거 원문)
-                    sessions(세션·폴링) · sources(업로드·링크) · chat(분석·대화·생성) · documents(조회·다운로드)
+  routers/          auth(로그인·비밀번호 찾기) · me(마이페이지·내 정보 수정·비밀번호 바꾸기) · transfers(인수인계서 전송·인수받은 내용) · handovers(구성원·받은 인수인계) · admin(관리자: 회원·팀 현황 + 우리 팀 구성원·인수인계) · profile(프로필) · unit_tasks(단위업무·업무파일) · conversations(진행 상태·기록 불러오기) · evidence(근거 원문)
+                    sessions(세션·폴링) · sources(업로드·링크) · chat(분석·대화·생성) · documents(조회·직접 수정·버전·다운로드)
+                    mail(메일 조회 API · 메일 가져오기)
   services/
     container.py    DB · 파일 저장소 · 지식베이스(RAG) · 에이전트(AI) · 작업 실행기 조립
     runner.py       백그라운드 작업 실행, 에이전트 이벤트 → DB 기록, 재시작 복구
     checkpointer.py 에이전트(LangGraph) 체크포인트를 DB 에 저장, 예전 SQLite 파일 가져오기
+    reports.py      관리자용 팀 인수인계 현황(팀원별 수행 기록·성과 지표)
+    accounts.py     비밀번호 바꾸기·재설정 토큰, 재설정 안내 가상 발송
+    documents.py    인수인계서 버전 기록(AI 초안·직접 수정·복원), 예전 문서 옮기기
+    mail.py         메일 조회 API 연동(가상 메일함 MockMailProvider), 메일 → .eml 변환
     storage.py      업로드 파일 안전 저장
     exporters.py    Markdown → Word / PDF
 scripts/            설치·실행 스크립트(sh, ps1)

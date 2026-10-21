@@ -32,7 +32,7 @@ from app.security import hash_password  # noqa: E402
 
 DIVISION = "디지털본부"  # 부서(본부)는 요청에 없어 임시로 둔다. 프로필 수정에서 바꿀 수 있다.
 
-# (아이디, 비밀번호, 이름, 부서, 팀, 직위, 역할)
+# (아이디, 비밀번호, 이름, 부서, 팀, 직위, 역할: admin = 관리자(users.is_admin) / member)
 ACCOUNTS = [
     ("amigoteamjang", "amigoteamjang1234", "김미고", DIVISION, "IT아미고팀", "팀장", "admin"),
     ("demo", "demo1234", "김민준", DIVISION, "IT아미고팀", "계장", "member"),
@@ -67,7 +67,7 @@ def upsert_accounts(db: Session) -> dict[str, User]:
             user.password_hash = hash_password(password)
             user.name = name
             print(f"계정 갱신  {login_id:14} {name}")
-        user.role = role
+        user.is_admin = role == "admin"  # 관리자 권한(users.is_admin): 팀장
         profile = user.profile or UserProfile(user_id=user.id)
         profile.department, profile.team, profile.position = department, team, position
         user.profile = profile
