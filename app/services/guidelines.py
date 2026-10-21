@@ -39,8 +39,8 @@ def agent_guidelines(row: TeamGuideline | None) -> dict[str, Any] | None:
     """에이전트에 넘길 지침(profile["team_guidelines"]). 비어 있으면 None."""
     if row is None:
         return None
-    cleaned = clean_team_guidelines({"items": stored_items(row), "notes": row.notes})
-    return cleaned if cleaned["items"] or cleaned["notes"] else None
+    cleaned = clean_team_guidelines({"items": stored_items(row), "notes": row.notes, "prompt": row.prompt or ""})
+    return cleaned if cleaned["items"] or cleaned["notes"] or cleaned["prompt"] else None
 
 
 def guidelines_for(db: Session, organization: str) -> dict[str, Any] | None:

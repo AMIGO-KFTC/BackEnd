@@ -47,6 +47,7 @@ def _out(row: TeamGuideline | None, organization: str, editable: bool, message: 
         organization=organization,
         items=items,
         notes=row.notes if row else "",
+        prompt=(row.prompt or "") if row else "",
         updated_at=row.updated_at if row else None,
         updated_by=row.updated_by if row else "",
         editable=editable,
@@ -70,19 +71,23 @@ def save_my_guidelines(
     organization = _organization(user)
     if not _editable(user, services.settings):
         raise HTTPException(status_code=403, detail=NOT_EDITOR)
-    seen: set[str] = set()
-    items: list[dict] = []
-    for item in body.items:
-        key = " ".join(item.name.split()).lower()
-        if not key:
-            continue
-        if key in seen:
-            raise HTTPException(status_code=422, detail=f"같은 이름의 항목이 둘 이상 있습니다: {item.name}")
-        seen.add(key)
-        items.append({"id": item.id or uuid.uuid4().hex[:8], "name": " ".join(item.name.split()), "instruction": item.instruction})
     row = db.get(TeamGuideline, organization) or TeamGuideline(organization=organization)
-    row.items_json = json.dumps(items, ensure_ascii=False)
-    row.notes = body.notes
+    if body.items is not None:
+        seen: set[str] = set()
+        items: list[dict] = []
+        for item in body.items:
+            key = " ".join(item.name.split()).lower()
+            if not key:
+                continue
+            if key in seen:
+                raise HTTPException(status_code=422, detail=f"같은 이름의 항목이 둘 이상 있습니다: {item.name}")
+            seen.add(key)
+            items.append({"id": item.id or uuid.uuid4().hex[:8], "name": " ".join(item.name.split()), "instruction": item.instruction})
+        row.items_json = json.dumps(items, ensure_ascii=False)
+    if body.notes is not None:
+        row.notes = body.notes
+    if body.prompt is not None:
+        row.prompt = body.prompt
     row.updated_by = user.name
     db.add(row)
     db.commit()

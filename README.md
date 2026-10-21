@@ -542,7 +542,7 @@ AI 가 처리 중(`status` 가 `running`)일 때 6)·7) 을 보내면 `409` 가 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
 | GET | `/api/team-guidelines/me` | 내 소속의 지침. `editable`(이 계정이 저장할 수 있는지)과 `prompt_preview`(AI 프롬프트에 들어가는 문구)를 함께 돌려줌 |
-| PUT | `/api/team-guidelines/me` | 지침 저장 `{"items": [{"id", "name", "instruction"}], "notes"}`. 항목 30개 · 이름 100자 · 안내 500자 · 팀 특징 2,000자 이하, 이름 중복은 `422`, 권한이 없으면 `403` |
+| PUT | `/api/team-guidelines/me` | 지침 저장 `{"items": [{"id", "name", "instruction"}], "notes", "prompt"}`. **보낸 필드만 바꿉니다**(항목 화면은 items·notes, AI 맞춤 설정 화면은 prompt 만 보냄). `prompt` 는 팀 전용 프롬프트(2,000자까지)로 AI 에 항목보다 앞서 전달됩니다. 항목 30개 · 이름 100자 · 안내 500자 · 팀 특징 2,000자 이하, 이름 중복은 `422`, 권한이 없으면 `403` |
 
 **AI 프롬프트 반영** — 그 소속의 인수인계 세션이 AI 분석을 시작할 때(`start_analysis`) 저장된 지침을 인계자 정보의 `team_guidelines` 로 에이전트에 넘깁니다.
 AI 쪽(`AI/src/amigo_agent/prompts.py` 의 `team_guidelines_block`)이 이를 장별 분석 프롬프트와 질의응답 프롬프트에 '우리 팀 인수인계서 지침' 구간으로 끼워 넣습니다.

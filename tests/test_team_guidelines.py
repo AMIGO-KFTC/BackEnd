@@ -121,11 +121,12 @@ def test_agent_receives_the_teams_guidelines_when_analysis_starts(client, sample
         return task["session_id"]
 
     login(client)
-    client.put("/api/team-guidelines/me", json=GUIDE)
+    client.put("/api/team-guidelines/me", json={**GUIDE, "prompt": "담당자 연락처를 가장 먼저 확인한다."})
     mine = run_analysis()
     guide = started[mine]["team_guidelines"]
     assert [i["name"] for i in guide["items"]] == ["외주 관리", "라이선스"]
     assert guide["notes"] == GUIDE["notes"]
+    assert guide["prompt"] == "담당자 연락처를 가장 먼저 확인한다."
     assert "id" not in guide["items"][0]  # 에이전트에는 프롬프트에 필요한 값만 넘긴다
 
     login(client, "other.user", {"department": "재무부", "team": "회계팀", "position": "대리"}, "박지훈")
@@ -164,3 +165,38 @@ def test_session_started_from_the_screen_gets_the_teams_guidelines(client, sampl
     assert client.post(f"/api/sessions/{sid}/analyze").status_code == 202
     wait_for(client, sid, lambda s: idle(s) and s["status"] == "waiting")
     assert [i["name"] for i in started[sid]["team_guidelines"]["items"]] == ["외주 관리", "라이선스"]
+
+
+def test_team_prompt_is_saved_alone_without_touching_items_and_notes(client):
+    login(client)
+    url = "/api/team-guidelines/me"
+    assert client.get(url).json()["prompt"] == ""
+    client.put(url, json=GUIDE)  # 항목과 팀 특징을 먼저 저장
+
+    saved = client.put(url, json={"prompt": "  모든 항목 제목은 [웹팀] 으로 시작하세요.  "}).json()  # AI 맞춤 설정 화면은 프롬프트만 보낸다
+    assert saved["prompt"] == "모든 항목 제목은 [웹팀] 으로 시작하세요."  # 앞뒤 공백은 지운다
+    assert [i["name"] for i in saved["items"]] == ["외주 관리", "라이선스"] and saved["notes"] == GUIDE["notes"]  # 보내지 않은 필드는 그대로
+    assert "[웹팀] 으로 시작" in saved["prompt_preview"] and "### 팀 전용 프롬프트" in saved["prompt_preview"]
+
+    client.put(url, json={"items": [], "notes": ""})  # 항목 화면은 프롬프트를 보내지 않으므로 프롬프트는 남는다
+    kept = client.get(url).json()
+    assert kept["items"] == [] and kept["notes"] == "" and kept["prompt"] == "모든 항목 제목은 [웹팀] 으로 시작하세요."
+    assert "[웹팀] 으로 시작" in kept["prompt_preview"]
+
+    cleared = client.put(url, json={"prompt": ""}).json()  # 빈 글을 보내면 지운다
+    assert cleared["prompt"] == "" and cleared["prompt_preview"] == ""
+    assert client.put(url, json={"prompt": "가" * 2001}).status_code == 422
+    assert client.put(url, json={"prompt": "가" * 2000}).status_code == 200
+
+
+def test_prompt_only_team_gets_the_prompt_in_the_agent_profile(client):
+    from app.models import TeamGuideline
+    from app.services.guidelines import guidelines_for
+
+    login(client)
+    client.put("/api/team-guidelines/me", json={"prompt": "항상 존댓말로 쓰세요."})  # 항목 없이 프롬프트만
+    services = client.app.state.services
+    with services.db() as db:
+        assert db.get(TeamGuideline, ORG).items_json == "[]"
+        guide = guidelines_for(db, "디지털전략부 · 웹서비스팀")
+    assert guide == {"items": [], "notes": "", "prompt": "항상 존댓말로 쓰세요."}
