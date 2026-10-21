@@ -200,3 +200,34 @@ def test_prompt_only_team_gets_the_prompt_in_the_agent_profile(client):
         assert db.get(TeamGuideline, ORG).items_json == "[]"
         guide = guidelines_for(db, "디지털전략부 · 웹서비스팀")
     assert guide == {"items": [], "notes": "", "prompt": "항상 존댓말로 쓰세요."}
+
+
+def test_prompt_saved_after_analysis_reaches_the_agent_on_the_next_turn(tmp_path):
+    """팀장이 분석이 끝난 뒤 프롬프트를 저장해도, 팀원 세션의 다음 답변 처리부터 에이전트가 새 프롬프트를 쓴다(다시 분석하지 않아도)."""
+    import time
+
+    from fastapi.testclient import TestClient
+
+    from app.config import Settings
+    from app.main import create_app
+
+    with TestClient(create_app(Settings(data_dir=tmp_path / "d", mock_mode=True, mock_delay=0, workers=4))) as c:
+        c.post("/api/auth/login", json={"login_id": "demo", "password": "demo1234"})
+        task = next(t for t in c.get("/api/unit-tasks").json()["tasks"] if t["name"] == "웹 접근성 관리")
+        sid = task["session_id"]
+        agent = c.app.state.services.agent
+        assert "team_guidelines" not in agent._states[sid]["profile"]
+        assert c.put("/api/team-guidelines/me", json={"prompt": "금액과 기한은 반드시 확인한다."}).status_code == 200
+        assert c.post(f"/api/sessions/{sid}/skip").status_code == 202
+        for _ in range(100):
+            if c.get(f"/api/sessions/{sid}").json()["status"] != "running":
+                break
+            time.sleep(0.1)
+        assert agent._states[sid]["profile"]["team_guidelines"]["prompt"] == "금액과 기한은 반드시 확인한다."
+        c.put("/api/team-guidelines/me", json={"prompt": ""})  # 프롬프트를 지우면 다음 턴에 빠진다
+        c.post(f"/api/sessions/{sid}/skip")
+        for _ in range(100):
+            if c.get(f"/api/sessions/{sid}").json()["status"] != "running":
+                break
+            time.sleep(0.1)
+        assert "team_guidelines" not in agent._states[sid]["profile"]
