@@ -22,7 +22,23 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import Settings, get_settings
-from .routers import auth, chat, conversations, documents, evidence, integrations, mock_wiki, profile, sessions, sources, team_guidelines, unit_tasks
+from .routers import (
+    admin,
+    auth,
+    chat,
+    conversations,
+    documents,
+    evidence,
+    integrations,
+    mail,
+    me,
+    mock_wiki,
+    profile,
+    sessions,
+    sources,
+    team_guidelines,
+    unit_tasks,
+)
 from .routers.deps import get_services, guard_session_owner, usage_total
 from .schemas import UsageTotal
 from .services.container import Services
@@ -40,7 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.services = Services(settings)
         if settings.mock_mode:
             logging.getLogger(__name__).warning(
-                "가상 응답 모드(AMIGO_MOCK_MODE=true): 실제 파일 분석·AI 호출 없이 예시 데이터로 응답합니다. 데모 계정 demo / demo1234"
+                "가상 응답 모드(AMIGO_MOCK_MODE=true): 실제 파일 분석·AI 호출 없이 예시 데이터로 응답합니다. 데모 계정 demo / demo1234, 관리자 admin / admin1234"
             )
         yield
         app.state.services.shutdown()
@@ -61,11 +77,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             response.headers["X-AMIGO-Mock"] = "true"
             return response
 
-    for module in (auth, profile, team_guidelines, unit_tasks, conversations, integrations):
-        app.include_router(module.router)
-    for module in (sessions, sources, chat, documents, evidence):  # 로그인 계정이 만든 세션은 그 계정만 접근
-        app.include_router(module.router, dependencies=[Depends(guard_session_owner)])
-    app.include_router(integrations.session_router, dependencies=[Depends(guard_session_owner)])
+    for router in (
+        auth.router,
+        me.router,
+        admin.router,
+        profile.router,
+        team_guidelines.router,
+        unit_tasks.router,
+        conversations.router,
+        documents.mine_router,
+        mail.router,
+        integrations.router,
+    ):
+        app.include_router(router)
+    # 로그인 계정이 만든 세션은 그 계정만 접근
+    for router in (sessions.router, sources.router, chat.router, documents.router, evidence.router, mail.session_router, integrations.session_router):
+        app.include_router(router, dependencies=[Depends(guard_session_owner)])
     app.include_router(mock_wiki.router)  # 가상 컨플루언스 화면(/wiki)
     _install_error_handlers(app)
 
@@ -97,6 +124,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 {"key": key, "number": STAGE_NUMBER[key], "label": STAGE_LABEL[key]}
                 for key in ("analyzing", "summary", "qna", "composing", "review")
             ],
+            "mail": {"provider": services.mail.name, "max_import": 20},
             "modes": [{"key": key, "label": label} for key, label in MODE_LABELS.items()],
             "slots": [
                 {
@@ -119,6 +147,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 FIELD_LABELS = {
     "login_id": "아이디",
     "password": "비밀번호",
+    "current_password": "지금 비밀번호",
+    "new_password": "새 비밀번호",
+    "email": "이메일",
+    "token": "재설정 토큰",
     "name": "이름",
     "department": "부서",
     "position": "직위",
@@ -128,6 +160,9 @@ FIELD_LABELS = {
     "tasks.description": "업무 설명",
     "description": "업무 설명",
     "files": "파일",
+    "markdown": "인수인계서 내용",
+    "base_version": "기준 버전",
+    "message_ids": "메일",
 }
 
 

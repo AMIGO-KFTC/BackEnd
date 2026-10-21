@@ -1,4 +1,4 @@
-"""DB 모델: 사용자 · 프로필 · 팀 인수인계서 지침 · 로그인 세션 · 단위업무 · 인수인계 세션 · 등록 자료(파일 원본) · 대화 메시지 · 대화 진행 상태."""
+"""DB 모델: 사용자(관리자 권한) · 프로필 · 팀 인수인계서 지침 · 로그인 세션 · 비밀번호 재설정 · 단위업무 · 인수인계 세션 · 등록 자료(파일 원본) · 대화 메시지 · 대화 진행 상태 · 인수인계서 버전."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import Float, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -27,8 +27,11 @@ class User(Base):
     login_id: Mapped[str] = mapped_column(String(50), unique=True)
     password_hash: Mapped[str] = mapped_column(String(200))
     name: Mapped[str] = mapped_column(String(50))
+    email: Mapped[str] = mapped_column(String(254), default="", index=True)  # 비밀번호 찾기 본인 확인·안내 메일 주소(소문자)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)  # 관리자 권한(관리자 페이지 · /api/admin)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     last_login_at: Mapped[datetime | None] = mapped_column(default=None)
+    password_changed_at: Mapped[datetime | None] = mapped_column(default=None)
 
     profile: Mapped[UserProfile | None] = relationship(back_populates="user", cascade="all, delete-orphan", uselist=False)
 
@@ -78,6 +81,21 @@ class AuthSession(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     expires_at: Mapped[datetime] = mapped_column()
+
+    user: Mapped[User] = relationship()
+
+
+class PasswordReset(Base):
+    """비밀번호 재설정 토큰. 토큰 원문은 안내 메일로만 보내고 DB 에는 SHA-256 만 저장한다. 한 번 쓰면 used_at 이 찍힌다."""
+
+    __tablename__ = "password_resets"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column()
+    used_at: Mapped[datetime | None] = mapped_column(default=None)
+    requested_by: Mapped[str] = mapped_column(String(10), default="self")  # self(비밀번호 찾기) | admin(관리자가 발급)
 
     user: Mapped[User] = relationship()
 
@@ -133,6 +151,8 @@ class HandoverSession(Base):
     pending_files_json: Mapped[str] = mapped_column(Text, default="[]")
     document_md: Mapped[str] = mapped_column(Text, default="")
     document_version: Mapped[int] = mapped_column(Integer, default=0)
+    # AI 가 마지막으로 내놓은 문서. 같은 초안을 버전 기록에 두 번 쌓지 않도록 비교하는 데 쓴다(현재 문서는 직접 고친 문서일 수 있음)
+    ai_document_md: Mapped[str] = mapped_column(Text, default="")
     # Claude API 사용량(이 세션에서 쓴 만큼 누적). 비용은 모델 단가로 계산한 추정치(USD)
     llm_requests: Mapped[int] = mapped_column(Integer, default=0)
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
@@ -146,6 +166,9 @@ class HandoverSession(Base):
 
     sources: Mapped[list[Source]] = relationship(back_populates="session", cascade="all, delete-orphan", order_by="Source.created_at")
     messages: Mapped[list[Message]] = relationship(back_populates="session", cascade="all, delete-orphan", order_by="Message.id")
+    document_versions: Mapped[list[DocumentVersion]] = relationship(
+        back_populates="session", cascade="all, delete-orphan", passive_deletes=True, order_by="DocumentVersion.version"
+    )
 
     def profile(self) -> dict[str, Any]:
         return {
@@ -215,6 +238,31 @@ class Message(Base):
     @property
     def meta(self) -> dict[str, Any]:
         return json.loads(self.meta_json or "{}")
+
+
+class DocumentVersion(Base):
+    """인수인계서 버전 기록. AI 가 작성한 초안과 사용자가 화면에서 직접 고친 문서를 모두 쌓아 둔다.
+
+    version 은 세션 안에서 1부터 늘어나는 BackEnd 기준 번호다(AI 초안·직접 수정·복원이 한 줄로 이어짐).
+    sessions.document_md / document_version 은 항상 마지막 버전(현재 문서)을 가리킨다.
+    """
+
+    __tablename__ = "document_versions"
+    __table_args__ = (UniqueConstraint("session_id", "version", name="uq_document_versions_session_version"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    origin: Mapped[str] = mapped_column(String(10))  # ai(AI 작성) | user(직접 수정) | restore(이전 버전 복원)
+    ai_version: Mapped[int] = mapped_column(Integer, default=0)  # AI 가 매긴 초안 번호(origin=ai 일 때)
+    based_on: Mapped[int] = mapped_column(Integer, default=0)  # 직접 수정·복원의 기준이 된 버전
+    markdown: Mapped[str] = mapped_column(Text)
+    note: Mapped[str] = mapped_column(String(300), default="")
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), default=None)
+    author_name: Mapped[str] = mapped_column(String(50), default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+    session: Mapped[HandoverSession] = relationship(back_populates="document_versions")
 
 
 class FileBlob(Base):
