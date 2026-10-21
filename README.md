@@ -507,8 +507,9 @@ AI 가 처리 중(`status` 가 `running`)일 때 6)·7) 을 보내면 `409` 가 
   - 첫 문서까지 걸린 시간 = 단위업무 등록부터 첫 인수인계서까지(평균, 시간)
   - 등록 자료 수 · 답변 수 · AI 버전 수 · 직접 수정 버전 수 · 마지막 작업 시각 · Claude API 추정 비용
   - 계산은 `app/services/reports.py` 에 있습니다.
-- **관리자 권한**은 `users.is_admin` 컬럼입니다. 처음 관리자는 `AMIGO_ADMIN_LOGIN_IDS=admin,minsu.kim` 처럼 아이디를 적고 서버를 켜면 생기고,
-  그 뒤에는 관리자가 위 API 로 주고 뺍니다. 관리자가 아니면 `/api/admin/*` 는 `403` 입니다.
+- **관리자 권한**은 `users.is_admin` 컬럼입니다. 관리자가 아니면 `/api/admin/*` 는 `403` 입니다.
+  처음 관리자는 DB 에서 직접 지정하고(예: `UPDATE users SET is_admin = TRUE WHERE login_id = 'minsu.kim';`, SQLite 는 `TRUE` 대신 `1`),
+  그 뒤에는 관리자가 위 API 로 주고 뺍니다. 가상 응답 모드에는 관리자 계정 `admin` / `admin1234` 가 미리 있습니다.
 - **비밀번호 찾기**는 아이디와 등록한 이메일이 맞을 때 재설정 토큰(유효 30분, `AMIGO_PASSWORD_RESET_TTL_MINUTES`)을 만들어
   `AMIGO_PASSWORD_RESET_URL` 링크로 안내합니다. **아직 실제 메일은 보내지 않습니다**(사내 메일 연동 전, `app/services/accounts.py` 의 `ResetNotifier`).
   개발할 때는 `AMIGO_EXPOSE_RESET_TOKEN=true`(가상 응답 모드는 자동)로 응답에 토큰을 받아 바로 재설정할 수 있고, 운영에서는 관리자 발급 토큰을 쓰세요.
@@ -763,7 +764,6 @@ Word 는 '맑은 고딕'을 동아시아 글꼴로 지정하고, PDF 는 시스�
 | `AMIGO_TEAM_GUIDELINE_EDITORS` | (비움) | 팀 인수인계서 지침을 저장할 수 있는 로그인 아이디(쉼표 구분, 대소문자 무시). 비우면 로그인한 누구나 자기 소속의 지침을 저장할 수 있으니 운영 때는 꼭 정하세요 |
 | `AMIGO_COOKIE_SECURE` | `false` | HTTPS 로 서비스할 때 `true`(로그인 쿠키 Secure) |
 | `AMIGO_AUTO_ANALYZE` | `true` | 단위업무 파일 적재가 끝나면 AI 분석 자동 시작 |
-| `AMIGO_ADMIN_LOGIN_IDS` | (없음) | 서버를 켤 때 관리자 권한을 줄 아이디(쉼표로 여러 개) |
 | `AMIGO_PASSWORD_RESET_TTL_MINUTES` | `30` | 비밀번호 재설정 토큰 유효 시간(분) |
 | `AMIGO_PASSWORD_RESET_URL` | `http://localhost:5173/#/reset-password?token={token}` | 재설정 안내에 넣을 화면 주소 |
 | `AMIGO_EXPOSE_RESET_TOKEN` | `false` | 개발용: 비밀번호 찾기 응답에 토큰을 넣음(메일 연동 전). 운영에서는 `false` |
@@ -791,7 +791,7 @@ app/
     runner.py       백그라운드 작업 실행, 에이전트 이벤트 → DB 기록, 재시작 복구
     checkpointer.py 에이전트(LangGraph) 체크포인트를 DB 에 저장, 예전 SQLite 파일 가져오기
     reports.py      관리자용 팀 인수인계 현황(팀원별 수행 기록·성과 지표)
-    accounts.py     비밀번호 바꾸기·재설정 토큰·관리자 권한 부여, 재설정 안내 가상 발송
+    accounts.py     비밀번호 바꾸기·재설정 토큰, 재설정 안내 가상 발송
     documents.py    인수인계서 버전 기록(AI 초안·직접 수정·복원), 예전 문서 옮기기
     mail.py         메일 조회 API 연동(가상 메일함 MockMailProvider), 메일 → .eml 변환
     storage.py      업로드 파일 안전 저장

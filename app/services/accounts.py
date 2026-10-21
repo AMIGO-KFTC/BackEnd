@@ -1,4 +1,4 @@
-"""계정 관리: 비밀번호 바꾸기 · 비밀번호 찾기(재설정 토큰) · 관리자 권한 부여.
+"""계정 관리: 비밀번호 바꾸기 · 비밀번호 찾기(재설정 토큰).
 
 - 재설정 토큰은 추측할 수 없는 난수이고 DB 에는 SHA-256 만 저장한다. 유효 시간(AMIGO_PASSWORD_RESET_TTL_MINUTES)이 지나거나
   한 번 쓰면 다시 쓸 수 없다. 새 토큰을 만들면 같은 사용자의 쓰지 않은 토큰은 지운다.
@@ -12,8 +12,8 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
-from sqlalchemy import delete, select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import delete
+from sqlalchemy.orm import Session
 
 from ..models import AuthSession, PasswordReset, User, utcnow
 from ..security import hash_password, new_token, token_hash
@@ -40,20 +40,6 @@ def set_password(db: Session, user: User, password: str, *, keep_token_hash: str
         query = query.where(AuthSession.token_hash != keep_token_hash)
     db.execute(query)
     db.execute(delete(PasswordReset).where(PasswordReset.user_id == user.id, PasswordReset.used_at.is_(None)))
-
-
-def promote_admins(session_factory: sessionmaker, login_ids: set[str]) -> int:
-    """AMIGO_ADMIN_LOGIN_IDS 에 적힌 아이디에 관리자 권한을 준다(이미 있는 계정만). 바뀐 계정 수를 돌려준다."""
-    if not login_ids:
-        return 0
-    with session_factory() as db:
-        users = list(db.scalars(select(User).where(User.login_id.in_(login_ids), User.is_admin.is_(False))))
-        for user in users:
-            user.is_admin = True
-        db.commit()
-    if users:
-        logger.info("관리자 권한을 주었습니다: %s", ", ".join(u.login_id for u in users))
-    return len(users)
 
 
 class ResetNotifier:

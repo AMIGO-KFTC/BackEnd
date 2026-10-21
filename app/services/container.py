@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import Settings
 from ..models import Base, HandoverSession
-from .accounts import ResetNotifier, promote_admins
+from .accounts import ResetNotifier
 from .checkpointer import DBCheckpointSaver, import_sqlite_checkpoints
 from .documents import backfill_versions
 from .mail import MockMailProvider
@@ -53,7 +53,6 @@ class Services:
         _add_missing_columns(self.engine)
         self.SessionLocal = sessionmaker(bind=self.engine, expire_on_commit=False)
         backfill_versions(self.SessionLocal)
-        promote_admins(self.SessionLocal, settings.admin_login_id_set)
         self.reset_notifier = ResetNotifier(settings.password_reset_url, log_token=settings.expose_reset_token)
 
         self.allowed_extensions = supported_extensions()
