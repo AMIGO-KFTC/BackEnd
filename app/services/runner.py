@@ -25,6 +25,7 @@ from sqlalchemy import select
 
 from ..models import FileBlob, HandoverSession, Message, Source, UnitTask, utcnow
 from .documents import record_ai_document
+from .department_notes import department_notes_for
 from .guidelines import guidelines_for
 
 if TYPE_CHECKING:
@@ -107,12 +108,17 @@ class JobRunner:
             guidelines = guidelines_for(db, row.organization)  # 팀 관리자가 정한 인수인계서 지침(없으면 None)
             if guidelines:
                 profile["team_guidelines"] = guidelines
+            dept_notes = department_notes_for(row.organization)  # 부서별 특이사항(없으면 None): 분석·질문·대화에 반영한다
+            if dept_notes:
+                profile["dept_notes"] = dept_notes
         kb, agent = self.services.kb(session_id), self.services.agent
         self.run_agent(session_id, "analyze", lambda h: agent.start(session_id, profile, kb, on_event=h), progress="자료를 분석하고 있어요.")
 
     def _agent_job(self, session_id: str, action: str, call: AgentCall) -> None:
         recorder = EventRecorder(self.services, session_id)
         try:
+            if action != "analyze":  # 팀 관리자가 분석 시작 뒤에 지침·프롬프트를 고쳤어도 이번 턴부터 반영한다(분석 시작은 최신 값을 새로 읽는다)
+                self._refresh_agent_profile(session_id)
             call(recorder)
             self._sync_snapshot(session_id)
         except (LLMError, AgentStateError) as exc:
@@ -124,6 +130,18 @@ class JobRunner:
             with self._lock:
                 self._active.discard(session_id)
         self._drain_pending_files(session_id)
+
+    def _refresh_agent_profile(self, session_id: str) -> None:
+        """진행 중인 대화의 인계자 정보에 팀 지침(팀장 프롬프트 포함)과 부서 특이사항의 최신 값을 반영한다. 지침을 지웠으면 None 으로 지운다."""
+        with self.services.db() as db:
+            row = db.get(HandoverSession, session_id)
+            if row is None:
+                return
+            patch = {"team_guidelines": guidelines_for(db, row.organization), "dept_notes": department_notes_for(row.organization)}
+        try:
+            self.services.agent.update_profile(session_id, patch)
+        except Exception:  # 갱신 실패가 답변 처리를 막지 않게 한다(이전 값으로 계속)
+            logger.warning("profile refresh failed for %s", session_id, exc_info=True)
 
     def _sync_snapshot(self, session_id: str) -> None:
         snap = self.services.agent.snapshot(session_id)

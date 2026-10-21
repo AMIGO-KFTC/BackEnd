@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select
 
+from ..services.department_notes import department_notes_for
 from ..models import ConversationRead, FileBlob, HandoverSession, HandoverTransfer, Message, Source, UnitTask, User, UserProfile
 from ..security import hash_password
 from . import scenario
@@ -100,6 +101,9 @@ def seed_demo(services: Services) -> None:
                 continue
             record = EventRecorder(services, session_id)
             kb = services.kb(session_id)
+            notes = department_notes_for(profile.get("organization", ""))  # 실제 분석 시작(runner.start_analysis)처럼 부서별 특이사항을 넘긴다
+            if notes:
+                profile = {**profile, "dept_notes": notes}
             agent.start(session_id, profile, kb, on_event=record)
             if goal == "document":
                 for answer in scenario.DEMO_ANSWERS:
