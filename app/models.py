@@ -27,10 +27,15 @@ class User(Base):
     login_id: Mapped[str] = mapped_column(String(50), unique=True)
     password_hash: Mapped[str] = mapped_column(String(200))
     name: Mapped[str] = mapped_column(String(50))
+    role: Mapped[str] = mapped_column(String(20), default="member")  # admin(팀 관리자: 팀장) | member(일반 구성원)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     last_login_at: Mapped[datetime | None] = mapped_column(default=None)
 
     profile: Mapped[UserProfile | None] = relationship(back_populates="user", cascade="all, delete-orphan", uselist=False)
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == "admin"
 
     @property
     def owner_key(self) -> str:
@@ -113,6 +118,7 @@ class HandoverSession(Base):
     position: Mapped[str] = mapped_column(String(50), default="")
     duties: Mapped[str] = mapped_column(Text, default="")
     successor: Mapped[str] = mapped_column(String(100), default="")
+    successor_login_id: Mapped[str] = mapped_column(String(50), default="")  # 인수자가 이 시스템 계정이면 그 아이디(받은 인수인계 목록에 쓴다)
     handover_date: Mapped[str] = mapped_column(String(20), default="")
     mode: Mapped[str] = mapped_column(String(20), default="reassignment")  # reassignment(인사발령) | leave(장기휴가)
     task_name: Mapped[str] = mapped_column(String(200), default="")  # 단위 업무명

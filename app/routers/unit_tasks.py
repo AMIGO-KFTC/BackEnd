@@ -45,6 +45,7 @@ def task_out(task: UnitTask) -> UnitTaskOut:
         session_id=row.id,
         mode=row.mode or "reassignment",
         successor=row.successor,
+        successor_login_id=row.successor_login_id or "",
         handover_date=row.handover_date,
         stage=row.stage,
         status=row.status,
@@ -94,6 +95,7 @@ def create_tasks(body: UnitTasksIn, user: User = Depends(current_user), db: Sess
             task_name=item.name,
             mode=item.mode,
             successor=item.successor,
+            successor_login_id=item.successor_login_id,
             handover_date=item.handover_date,
             welcome=_welcome(item.name),
         )
@@ -133,6 +135,8 @@ def update_task(task_id: str, body: UnitTaskUpdate, user: User = Depends(current
         row.mode = body.mode
     if body.successor is not None:
         row.successor = body.successor
+    if body.successor_login_id is not None:
+        row.successor_login_id = body.successor_login_id.lower()
     if body.handover_date is not None:
         row.handover_date = body.handover_date
     db.commit()
