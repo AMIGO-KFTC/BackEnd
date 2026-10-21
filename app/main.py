@@ -22,7 +22,23 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import Settings, get_settings
-from .routers import admin, auth, chat, conversations, documents, evidence, integrations, mail, me, mock_wiki, profile, sessions, sources, unit_tasks
+from .routers import (
+    admin,
+    auth,
+    chat,
+    conversations,
+    documents,
+    evidence,
+    integrations,
+    mail,
+    me,
+    mock_wiki,
+    profile,
+    sessions,
+    sources,
+    team_guidelines,
+    unit_tasks,
+)
 from .routers.deps import get_services, guard_session_owner, usage_total
 from .schemas import UsageTotal
 from .services.container import Services
@@ -61,7 +77,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             response.headers["X-AMIGO-Mock"] = "true"
             return response
 
-    for router in (auth.router, me.router, admin.router, profile.router, unit_tasks.router, conversations.router, documents.mine_router, mail.router, integrations.router):
+    for router in (
+        auth.router,
+        me.router,
+        admin.router,
+        profile.router,
+        team_guidelines.router,
+        unit_tasks.router,
+        conversations.router,
+        documents.mine_router,
+        mail.router,
+        integrations.router,
+    ):
         app.include_router(router)
     # 로그인 계정이 만든 세션은 그 계정만 접근
     for router in (sessions.router, sources.router, chat.router, documents.router, evidence.router, mail.session_router, integrations.session_router):
