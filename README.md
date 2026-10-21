@@ -624,6 +624,25 @@ RAG 메일 파서가 보낸 사람·받는 사람·일시·제목을 출처 표�
 
 고른 대화·페이지는 아래 세션 API 로 자료 등록하면 업로드 파일과 같은 방식(DB 원본 + 디스크 사본 → 지식베이스 적재)으로 처리됩니다.
 
+### 역할 · 구성원 · 받은 인수인계 · 관리자(팀장)
+
+관리자(팀장)는 `users.is_admin` 이 참인 계정입니다. 회원가입은 일반 구성원으로 만들어지고, 처음 관리자는 DB 에서 지정하며 그 뒤에는 관리자 API(`PATCH /api/admin/users/{id}/role`)로 주고 뺍니다
+(`scripts/seed_accounts.py` 가 시연용 계정 5개와 관리자 권한·인수인계 관계를 넣습니다). 로그인·`/api/auth/me` 응답의 `user.is_admin` 으로 화면이 팀 관리 모드를 열어 줍니다.
+
+인계자가 단위업무·세션을 만들 때 인수자의 로그인 아이디(`successor_login_id`)를 적으면 그 계정의 **받은 인수인계**에 나타나고, 인수자는 그 세션을
+**읽기만**(GET: 상태·문서·PDF 내려받기·근거) 할 수 있습니다. 팀 관리자는 같은 소속(부서 + 팀) 구성원의 세션을 같은 방식으로 읽을 수 있습니다.
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/members` | 프로필을 입력한 모든 계정(인수자 선택 목록). 로그인 필요 |
+| GET | `/api/handovers/received` | 내가 인수자(`successor_login_id`)인 인수인계 목록(최근 순) |
+| GET | `/api/admin/members` | 우리 팀(관리자와 같은 소속) 구성원과 인수인계 건수. 관리자가 아니면 `403`, 프로필이 없으면 `400` |
+| GET | `/api/admin/handovers` | 우리 팀 구성원이 인계자인 인수인계 목록(인수자·질문 수·남은 항목 포함) |
+| DELETE | `/api/admin/members/{user_id}` | 우리 팀 구성원 삭제(그 구성원의 인수인계·자료·문서 포함). 본인은 `400`, 다른 팀은 `404`, AI 처리 중이면 `409` |
+
+시연용 계정(`scripts/seed_accounts.py`, 비밀번호는 스크립트 참고): IT아미고팀 팀장 김미고 `amigoteamjang` · 계장 김민준 `demo` · 계장 최환 `hwan`,
+AI개발팀 팀장 최고미 `aiteamjang` · 계장 임윤희 `yunhui`. 인수인계는 김민준 → 임윤희, 임윤희 → 최환, 김미고 → 최고미 로 들어 있습니다.
+
 ### 팀 인수인계서 지침 (관리자)
 
 팀 관리자가 관리자 화면의 **팀 인수인계 항목** 메뉴에서 '우리 팀 인수인계서에 담는 항목'(이름 · 작성 안내)과 '팀 특징·작성 지침'(자유 글)을
@@ -703,7 +722,7 @@ AI 쪽(`AI/src/amigo_agent/prompts.py` 의 `team_guidelines_block`)이 이를 �
 | `conversation_reads` | session_id, user_id, last_read_message_id(읽음 위치), updated_at |
 | `agent_checkpoints` | thread_id(=세션 ID), checkpoint_id, parent_checkpoint_id, checkpoint(직렬화된 에이전트 상태), metadata |
 | `agent_checkpoint_writes` | thread_id, checkpoint_id, task_id, idx, channel, value(병렬 노드 결과·입력 대기 같은 중간 기록) |
-| `sessions` | id, user_id, 인계자 기초 정보, **stage, status, progress**, error, engine, slots_json, gaps_json, question_count, document_md, document_version |
+| `sessions` | id, user_id, 인계자 기초 정보(successor, **successor_login_id** = 인수자 계정), **stage, status, progress**, error, engine, slots_json, gaps_json, question_count, document_md, document_version |
 | `document_versions` | session_id, **version**(세션 안 번호), origin(ai/user/restore), ai_version, based_on, markdown, note, author_id, author_name, created_at |
 | `sources` | id(=RAG source_id), session_id, kind(file/link), name, stored_path/url, link_type(메일에서 가져오면 mail), size, status(pending/processing/ready/failed), error, chunk_count, warnings |
 | `messages` | id(증가 커서), session_id, role(user/assistant/system), kind, content, meta_json, created_at |
@@ -804,7 +823,7 @@ app/
   schemas.py        API 요청/응답 스키마(FrontEnd 의 src/types.ts 와 짝)
   security.py       비밀번호 해시(scrypt), 로그인 토큰
   mock/             가상 응답 모드: 예시 시나리오(scenario) · 가짜 AI(agent) · 가짜 지식베이스(kb) · 데모 데이터(seed)
-  routers/          auth(로그인·비밀번호 찾기) · me(마이페이지·내 정보 수정·비밀번호 바꾸기) · transfers(인수인계서 전송·인수받은 내용) · admin(관리자) · profile(프로필) · unit_tasks(단위업무·업무파일) · conversations(진행 상태·기록 불러오기) · evidence(근거 원문)
+  routers/          auth(로그인·비밀번호 찾기) · me(마이페이지·내 정보 수정·비밀번호 바꾸기) · transfers(인수인계서 전송·인수받은 내용) · handovers(구성원·받은 인수인계) · admin(관리자: 회원·팀 현황 + 우리 팀 구성원·인수인계) · profile(프로필) · unit_tasks(단위업무·업무파일) · conversations(진행 상태·기록 불러오기) · evidence(근거 원문)
                     sessions(세션·폴링) · sources(업로드·링크) · chat(분석·대화·생성) · documents(조회·직접 수정·버전·다운로드)
                     mail(메일 조회 API · 메일 가져오기)
   services/

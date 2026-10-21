@@ -168,6 +168,7 @@ class UnitTaskIn(_Stripped):
     description: str = Field(default="", max_length=2000, description="업무 설명(선택)")
     mode: HandoverMode = Field(default="reassignment", description="인계 유형: reassignment=인사발령(6개 장), leave=장기휴가(3개 장)")
     successor: str = Field(default="", max_length=100, description="인수자(선택)")
+    successor_login_id: str = Field(default="", max_length=50, description="인수자의 로그인 아이디(선택). 적으면 그 계정의 '받은 인수인계'에 나타난다")
     handover_date: str = Field(default="", pattern=DATE_PATTERN, description="인계 예정일 YYYY-MM-DD(선택)")
 
 
@@ -180,6 +181,7 @@ class UnitTaskUpdate(_Stripped):
     description: str | None = Field(default=None, max_length=2000)
     mode: HandoverMode | None = None
     successor: str | None = Field(default=None, max_length=100)
+    successor_login_id: str | None = Field(default=None, max_length=50)
     handover_date: str | None = Field(default=None, pattern=DATE_PATTERN)
 
 
@@ -191,6 +193,7 @@ class UnitTaskOut(BaseModel):
     session_id: str = Field(description="이 단위업무의 인수인계 세션 ID. 질의응답·문서는 /api/sessions/{session_id}/... 를 그대로 쓴다")
     mode: str = Field(description="인계 유형: reassignment(인사발령) | leave(장기휴가)")
     successor: str
+    successor_login_id: str = ""
     handover_date: str
     stage: str
     status: str
@@ -215,12 +218,13 @@ class SessionCreate(BaseModel):
     position: str = Field(default="", max_length=50, description="직책")
     duties: str = Field(default="", max_length=2000, description="담당 업무 개요")
     successor: str = Field(default="", max_length=100, description="인수자")
+    successor_login_id: str = Field(default="", max_length=50, description="인수자의 로그인 아이디(이 시스템 계정이면). 그 계정의 '받은 인수인계'에 나타난다")
     handover_date: str = Field(default="", max_length=20, description="인계 예정일(YYYY-MM-DD)")
     title: str = Field(default="", max_length=200)
     mode: Literal["reassignment", "leave"] = Field(default="reassignment", description="인수인계 유형: reassignment=인사발령, leave=장기휴가")
     task_name: str = Field(default="", max_length=200, description="단위 업무명(업무 단위별로 인수인계서 1건)")
 
-    @field_validator("owner_name", "organization", "position", "duties", "successor", "handover_date", "title", "task_name")
+    @field_validator("owner_name", "organization", "position", "duties", "successor", "successor_login_id", "handover_date", "title", "task_name")
     @classmethod
     def _strip(cls, value: str) -> str:
         return value.strip()
@@ -269,6 +273,9 @@ class SessionSummary(BaseModel):
     position: str
     mode: str = "reassignment"
     task_name: str = ""
+    successor: str = ""
+    successor_login_id: str = ""
+    handover_date: str = ""
     stage: str
     status: str
     document_version: int
@@ -297,8 +304,7 @@ class UsageTotal(Usage):
 
 class SessionDetail(SessionSummary):
     duties: str
-    successor: str
-    handover_date: str
+    owner_login_id: str = Field(default="", description="인계자(세션을 만든 로그인 계정)의 아이디. 로그인 없이 만든 세션이면 빈 값")
     progress: Progress
     error: str
     engine: str
@@ -558,6 +564,73 @@ class CitationsOut(BaseModel):
 
 class ReindexResult(Result):
     source_count: int = Field(description="다시 적재하는 자료 수")
+
+
+# ---------------------------------------------------------------- 구성원 · 받은 인수인계 · 관리자
+
+
+class MemberOut(BaseModel):
+    """프로필을 입력한 계정(인수자 선택 목록·관리자 구성원 목록)."""
+
+    id: int
+    login_id: str
+    name: str
+    is_admin: bool = Field(default=False, description="관리자 권한(users.is_admin)")
+    department: str
+    team: str
+    position: str
+    organization: str = Field(description="부서 + 팀")
+
+
+class MembersResult(Result):
+    members: list[MemberOut]
+
+
+class ReceivedHandoverOut(BaseModel):
+    """내가 인수자로 지정된 인수인계. 읽기(상태·문서·내려받기)만 할 수 있다."""
+
+    id: str = Field(description="세션 ID. 문서는 GET /api/sessions/{id}/document, PDF 는 /download 로 읽는다")
+    title: str
+    task_name: str
+    mode: str
+    owner_name: str
+    owner_login_id: str = ""
+    organization: str
+    position: str
+    handover_date: str
+    stage: str
+    status: str
+    document_version: int
+    file_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ReceivedHandoversResult(Result):
+    handovers: list[ReceivedHandoverOut]
+
+
+class AdminMemberOut(MemberOut):
+    handover_count: int = Field(description="이 구성원이 인계자인 인수인계 수")
+    completed_count: int = Field(description="그중 문서가 만들어진 수")
+    last_login_at: datetime | None = None
+
+
+class AdminMembersResult(Result):
+    organization: str = Field(description="관리자의 소속(부서 + 팀). 이 소속의 구성원만 보인다")
+    members: list[AdminMemberOut]
+
+
+class AdminHandoverOut(ReceivedHandoverOut):
+    successor: str
+    successor_login_id: str
+    question_count: int
+    open_gap_count: int
+
+
+class AdminHandoversResult(Result):
+    organization: str
+    handovers: list[AdminHandoverOut]
 
 
 # ---------------------------------------------------------------- 메일 조회(가상 메일 조회 API)

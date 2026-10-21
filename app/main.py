@@ -29,6 +29,7 @@ from .routers import (
     conversations,
     documents,
     evidence,
+    handovers,
     integrations,
     mail,
     me,
@@ -81,6 +82,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     for router in (
         auth.router,
         me.router,
+        handovers.router,
         admin.router,
         profile.router,
         team_guidelines.router,
