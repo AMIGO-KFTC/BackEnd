@@ -560,6 +560,26 @@ AI 가 만든 초안과 사용자가 화면에서 직접 고친 문서를 모두
 - 저장·복원하면 대화 기록에 안내 메시지(`system`/`info`)가 남습니다.
 - 이 기능 이전에 만든 문서(`sessions.document_md`)는 서버를 시작할 때 첫 버전으로 옮겨집니다.
 
+### 인수인계서 전송(인계자 → 인수자) · 인수받은 내용
+
+인계자가 **인수자 이름**을 입력해 자기 인수인계서를 보내면, 인수자는 마이페이지 **'인수받은 내용'**(인수 현황)에서 받은 산출물을 봅니다.
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/users/recipients?q=` | 인수자 찾기: 이름(일부)으로 회원 검색, 동명이인을 구별하도록 부서·팀·직위 포함(본인 제외) |
+| POST | `/api/sessions/{id}/transfers` | 보내기 `{"recipient_name": "이서연", "message": "선택"}`. 이름이 같은 회원이 여럿이면 `409` + `detail.candidates` → 고른 `{"recipient_id": N}` 으로 다시 보냄. 문서가 없으면 `400`, 없는 이름이면 `404`, 본인은 `400` |
+| GET | `/api/sessions/{id}/transfers` | 이 인수인계서를 보낸 기록(받는 사람·읽음 여부) |
+| GET | `/api/me/sent` | 내가 보낸 인수인계서 전체 |
+| GET | `/api/me/received?q=&unread_only=` | **인수받은 내용(인수 현황)**: 받은 인수인계서 목록, 보낸 사람(소속·직위)·업무명·버전·남긴 말·받은 시각·읽음 여부, `unread_count` |
+| GET | `/api/me/received/{transfer_id}` | 받은 산출물 보기(Markdown). 처음 열면 읽음 처리 |
+| GET | `/api/me/received/{transfer_id}/download?format=pdf\|docx\|md` | 받은 산출물 내려받기 |
+
+- 보낸 시점의 문서를 복사해 둡니다(`handover_transfers`). 인계자가 나중에 고쳐도 인수자는 받은 그대로 보고, 고친 문서는 다시 보내면 새로 쌓입니다.
+- 인계자가 단위업무를 지워도 받은 문서는 남습니다. 인수자는 인계자의 작업(세션)에는 들어갈 수 없고 받은 문서만 봅니다.
+- 보내면 인계자 대화 기록에 안내가 남고, 인수자 칸이 비어 있으면 받는 사람 이름으로 채웁니다.
+- `/api/me` 의 `stats` 에 보낸 수(`sent_transfers`)·받은 수(`received_transfers`)·안 읽은 수(`received_unread`)가 있어 '인수받은 내용' 배지에 씁니다.
+- 가상 응답 모드: 이서연이 '모바일 웹 운영' 인수인계서를 김민수(`demo`)에게 보내 둔 상태로 시작합니다.
+
 ### 메일 조회 API (가상 메일함)
 
 업무 자료를 올릴 때 메일함에서 업무 메일을 찾아 골라 가져옵니다. 지금은 실제 메일 서버 대신 **가상 메일 조회 API**
@@ -676,6 +696,7 @@ AI 쪽(`AI/src/amigo_agent/prompts.py` 의 `team_guidelines_block`)이 이를 �
 | `users` | id, login_id(소문자, 고유), password_hash(scrypt), name, email, **is_admin(관리자 권한)**, last_login_at, password_changed_at |
 | `user_profiles` | user_id, department(부서), team(팀), position(직위) — 이름은 `users.name` |
 | `auth_sessions` | token_hash(토큰의 SHA-256, 원문은 저장 안 함), user_id, expires_at |
+| `handover_transfers` | id, session_id(인계 세션, 지우면 NULL), sender_id, recipient_id, title, task_name, 보낸 사람 소속·직위, document_version, **markdown(보낸 시점 문서)**, message, created_at, read_at |
 | `password_resets` | token_hash(재설정 토큰의 SHA-256), user_id, expires_at, used_at, requested_by(self/admin) |
 | `unit_tasks` | id, user_id, **session_id**(단위업무별 인수인계 세션), name, description, sort_order |
 | `file_blobs` | source_id, content_type, sha256, **content(업로드 원본 바이트)** |
@@ -783,7 +804,7 @@ app/
   schemas.py        API 요청/응답 스키마(FrontEnd 의 src/types.ts 와 짝)
   security.py       비밀번호 해시(scrypt), 로그인 토큰
   mock/             가상 응답 모드: 예시 시나리오(scenario) · 가짜 AI(agent) · 가짜 지식베이스(kb) · 데모 데이터(seed)
-  routers/          auth(로그인·비밀번호 찾기) · me(마이페이지·내 정보 수정·비밀번호 바꾸기) · admin(관리자) · profile(프로필) · unit_tasks(단위업무·업무파일) · conversations(진행 상태·기록 불러오기) · evidence(근거 원문)
+  routers/          auth(로그인·비밀번호 찾기) · me(마이페이지·내 정보 수정·비밀번호 바꾸기) · transfers(인수인계서 전송·인수받은 내용) · admin(관리자) · profile(프로필) · unit_tasks(단위업무·업무파일) · conversations(진행 상태·기록 불러오기) · evidence(근거 원문)
                     sessions(세션·폴링) · sources(업로드·링크) · chat(분석·대화·생성) · documents(조회·직접 수정·버전·다운로드)
                     mail(메일 조회 API · 메일 가져오기)
   services/

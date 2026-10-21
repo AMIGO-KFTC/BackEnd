@@ -29,7 +29,7 @@ def test_mypage_view_and_edit(client):
     assert login(client).json()["user"]["is_admin"] is False
 
     me = client.get("/api/me").json()
-    assert me["user"]["profile"] is None and me["stats"] == {"unit_tasks": 0, "documents": 0, "document_versions": 0}
+    assert me["user"]["profile"] is None and me["stats"] == {"unit_tasks": 0, "documents": 0, "document_versions": 0, "sent_transfers": 0, "received_transfers": 0, "received_unread": 0}
 
     # 처음에는 부서·직위를 함께 보내야 한다
     first = client.patch("/api/me", json={"team": "웹서비스팀"})

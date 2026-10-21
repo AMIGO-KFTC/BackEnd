@@ -37,6 +37,7 @@ from .routers import (
     sessions,
     sources,
     team_guidelines,
+    transfers,
     unit_tasks,
 )
 from .routers.deps import get_services, guard_session_owner, usage_total
@@ -88,10 +89,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         documents.mine_router,
         mail.router,
         integrations.router,
+        transfers.router,
     ):
         app.include_router(router)
     # 로그인 계정이 만든 세션은 그 계정만 접근
-    for router in (sessions.router, sources.router, chat.router, documents.router, evidence.router, mail.session_router, integrations.session_router):
+    for router in (sessions.router, sources.router, chat.router, documents.router, evidence.router, mail.session_router, integrations.session_router, transfers.session_router):
         app.include_router(router, dependencies=[Depends(guard_session_owner)])
     app.include_router(mock_wiki.router)  # 가상 컨플루언스 화면(/wiki)
     _install_error_handlers(app)

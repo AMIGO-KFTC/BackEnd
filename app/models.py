@@ -1,4 +1,4 @@
-"""DB 모델: 사용자(관리자 권한) · 프로필 · 팀 인수인계서 지침 · 로그인 세션 · 비밀번호 재설정 · 단위업무 · 인수인계 세션 · 등록 자료(파일 원본) · 대화 메시지 · 대화 진행 상태 · 인수인계서 버전."""
+"""DB 모델: 사용자(관리자 권한) · 프로필 · 팀 인수인계서 지침 · 로그인 세션 · 비밀번호 재설정 · 단위업무 · 인수인계 세션 · 등록 자료(파일 원본) · 대화 메시지 · 대화 진행 상태 · 인수인계서 버전 · 인수인계서 전송."""
 
 from __future__ import annotations
 
@@ -263,6 +263,37 @@ class DocumentVersion(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
     session: Mapped[HandoverSession] = relationship(back_populates="document_versions")
+
+
+class HandoverTransfer(Base):
+    """인수인계서 전송: 인계자가 인수자(회원)에게 보낸 산출물.
+
+    보낸 시점의 문서(markdown·버전)를 그대로 복사해 둔다. 그래서 인계자가 나중에 문서를 고쳐도 인수자는 받은 그대로 보고,
+    고친 문서를 다시 보내면 새 전송으로 쌓인다. 인계 세션이 지워져도(session_id → NULL) 받은 문서는 남는다.
+    """
+
+    __tablename__ = "handover_transfers"
+    __table_args__ = (Index("ix_handover_transfers_recipient", "recipient_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    session_id: Mapped[str | None] = mapped_column(ForeignKey("sessions.id", ondelete="SET NULL"), index=True, default=None)
+    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    recipient_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    title: Mapped[str] = mapped_column(String(200))
+    task_name: Mapped[str] = mapped_column(String(200), default="")
+    mode: Mapped[str] = mapped_column(String(20), default="reassignment")
+    sender_name: Mapped[str] = mapped_column(String(50))
+    sender_organization: Mapped[str] = mapped_column(String(100), default="")
+    sender_position: Mapped[str] = mapped_column(String(50), default="")
+    handover_date: Mapped[str] = mapped_column(String(20), default="")
+    document_version: Mapped[int] = mapped_column(Integer, default=0)
+    markdown: Mapped[str] = mapped_column(Text)
+    message: Mapped[str] = mapped_column(Text, default="")  # 인계자가 남긴 말
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    read_at: Mapped[datetime | None] = mapped_column(default=None)  # 인수자가 처음 열어 본 시각
+
+    sender: Mapped[User] = relationship(foreign_keys=[sender_id])
+    recipient: Mapped[User] = relationship(foreign_keys=[recipient_id])
 
 
 class FileBlob(Base):

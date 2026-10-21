@@ -97,6 +97,9 @@ class MyStats(BaseModel):
     unit_tasks: int = Field(description="등록한 단위업무 수")
     documents: int = Field(description="인수인계서가 만들어진 업무 수")
     document_versions: int = Field(description="저장된 인수인계서 버전 수(AI 초안·직접 수정 포함)")
+    sent_transfers: int = Field(default=0, description="인수자에게 보낸 인수인계서 수")
+    received_transfers: int = Field(default=0, description="인수받은 인수인계서 수")
+    received_unread: int = Field(default=0, description="인수받았지만 아직 열어 보지 않은 수")
 
 
 class MyPageOut(Result):
@@ -752,3 +755,55 @@ class TeamGuidelineOut(Result):
     updated_by: str = ""
     editable: bool = Field(description="이 계정이 지침을 저장할 수 있는지")
     prompt_preview: str = Field(description="AI 프롬프트에 들어가는 문구 미리보기(지침이 비어 있으면 빈 문자열)")
+
+
+# ---------------------------------------------------------------- 인수인계서 전송(인계자 → 인수자)
+
+
+class RecipientCandidate(BaseModel):
+    user_id: int
+    name: str
+    login_id: str
+    department: str
+    team: str
+    position: str
+
+
+class RecipientSearchOut(Result):
+    candidates: list[RecipientCandidate]
+
+
+class TransferIn(_Stripped):
+    recipient_name: str = Field(default="", max_length=50, description="인수자 이름. 같은 이름이 여럿이면 409 와 함께 후보가 온다")
+    recipient_id: int | None = Field(default=None, ge=1, description="인수자 회원 ID(이름이 겹칠 때 후보에서 고른 값). 주면 이름보다 우선")
+    message: str = Field(default="", max_length=1000, description="인수자에게 남길 말(선택)")
+
+
+class TransferSummary(BaseModel):
+    id: str
+    title: str
+    task_name: str
+    mode: str
+    document_version: int = Field(description="보낸 인수인계서 버전")
+    sender: RecipientCandidate = Field(description="보낸 사람(인계자)")
+    recipient: RecipientCandidate = Field(description="받는 사람(인수자)")
+    handover_date: str
+    message: str
+    created_at: datetime = Field(description="보낸 시각")
+    read_at: datetime | None = Field(description="인수자가 처음 열어 본 시각(안 읽었으면 null)")
+    is_read: bool
+
+
+class TransferDetail(TransferSummary):
+    markdown: str = Field(description="보낸 시점의 인수인계서 전체(Markdown). 인계자가 나중에 고쳐도 바뀌지 않는다")
+    session_id: str | None = Field(description="원래 인계 세션(인계자가 지웠으면 null)")
+
+
+class TransferResult(Result):
+    transfer: TransferSummary
+
+
+class TransfersOut(Result):
+    transfers: list[TransferSummary]
+    total: int
+    unread_count: int = Field(default=0, description="아직 열어 보지 않은 받은 인수인계서 수")

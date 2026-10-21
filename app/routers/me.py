@@ -15,6 +15,7 @@ from ..schemas import MyInfoUpdate, MyPageOut, MyStats, PasswordChangeIn, Result
 from ..security import token_hash, verify_password
 from ..services.accounts import set_password
 from .deps import as_utc, current_user, get_db, request_token, user_out
+from .transfers import transfer_counts
 
 router = APIRouter(prefix="/api/me", tags=["mypage"])
 
@@ -34,6 +35,7 @@ def mypage(db: Session, user: User, message: str = "") -> MyPageOut:
         unit_tasks=db.scalar(select(func.count(UnitTask.id)).where(UnitTask.user_id == user.id)) or 0,
         documents=db.scalar(select(func.count(HandoverSession.id)).where(HandoverSession.user_id == user.owner_key, HandoverSession.document_md != "")) or 0,
         document_versions=db.scalar(select(func.count(DocumentVersion.id)).where(DocumentVersion.session_id.in_(owned))) or 0,
+        **transfer_counts(db, user),
     )
     return MyPageOut(
         message=message,
