@@ -78,6 +78,22 @@ class FileStorage:
             raise UploadRejected("빈 파일입니다.")
         return target, name, size
 
+    def save_bytes(self, session_id: str, source_id: str, name: str, content: bytes) -> tuple[Path, str, int]:
+        """서버가 만든 자료(예: 메일 조회 API 에서 가져온 메일의 .eml)를 업로드와 같은 규칙으로 저장한다."""
+        name = display_name(name)
+        ext = extension_of(name)
+        if ext not in self.allowed:
+            raise UploadRejected(f"지원하지 않는 형식입니다({ext or '확장자 없음'}).")
+        if not content:
+            raise UploadRejected("빈 파일입니다.")
+        if len(content) > self.max_bytes:
+            raise UploadRejected(f"파일이 너무 큽니다(최대 {self.max_bytes // (1024 * 1024)}MB).")
+        target_dir = self.session_dir(session_id)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / f"{source_id}{ext}"
+        target.write_bytes(content)
+        return target, name, len(content)
+
     def remove(self, path: str) -> None:
         if path:
             candidate = Path(path)

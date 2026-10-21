@@ -53,6 +53,13 @@ def current_user(user: User | None = Depends(optional_user)) -> User:
     return user
 
 
+def require_admin(user: User = Depends(current_user)) -> User:
+    """관리자 API 공통 검사: 로그인했고 users.is_admin 이 참이어야 한다."""
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="관리자만 쓸 수 있습니다.")
+    return user
+
+
 def get_user_id(x_user_id: str | None = Header(default=None), user: User | None = Depends(optional_user)) -> str:
     """세션 소유자 구분. 로그인했으면 계정 기준, 아니면 프로토타입용 X-User-Id(브라우저가 만든 임의 ID)."""
     if user is not None:
@@ -62,15 +69,40 @@ def get_user_id(x_user_id: str | None = Header(default=None), user: User | None 
 
 
 def guard_session_owner(request: Request, db: Session = Depends(get_db), user: User | None = Depends(optional_user)) -> None:
-    """/api/sessions/{session_id}/... 공통 검사: 로그인 계정이 만든 세션은 그 계정만 쓸 수 있다."""
+    """/api/sessions/{session_id}/... 공통 검사: 로그인 계정이 만든 세션은 그 계정만 쓸 수 있다.
+
+    인수자로 지정된 계정(successor_login_id)은 읽기(GET: 상태·문서·내려받기·근거)만 할 수 있다.
+    """
     session_id = request.path_params.get("session_id")
     row = db.get(HandoverSession, session_id) if session_id else None
     if row is None or not row.user_id.startswith("user:"):
         return
     if user is None:
         raise HTTPException(status_code=401, detail=LOGIN_REQUIRED, headers={"WWW-Authenticate": "Bearer"})
-    if user.owner_key != row.user_id:
-        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    if user.owner_key == row.user_id:
+        return
+    if request.method == "GET" and (is_successor(user, row) or is_team_admin(db, user, row)):
+        return
+    raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+
+
+def is_successor(user: User, row: HandoverSession) -> bool:
+    return bool(row.successor_login_id) and row.successor_login_id.lower() == user.login_id.lower()
+
+
+def is_team_admin(db: Session, user: User, row: HandoverSession) -> bool:
+    """팀 관리자(role=admin)는 같은 소속(부서 + 팀) 구성원의 인수인계를 읽을 수 있다."""
+    from ..services.guidelines import organization_key  # 순환 import 방지
+
+    if not user.is_admin or user.profile is None:
+        return False
+    try:
+        owner = db.get(User, int(row.user_id.split(":", 1)[1]))
+    except ValueError:
+        return False
+    if owner is None or owner.profile is None:
+        return False
+    return organization_key(owner.profile.organization) == organization_key(user.profile.organization)
 
 
 def profile_out(user: User) -> ProfileOut | None:
@@ -81,7 +113,7 @@ def profile_out(user: User) -> ProfileOut | None:
 
 
 def user_out(user: User) -> UserOut:
-    return UserOut(id=user.id, login_id=user.login_id, name=user.name, profile=profile_out(user))
+    return UserOut(id=user.id, login_id=user.login_id, name=user.name, email=user.email or "", is_admin=bool(user.is_admin), profile=profile_out(user))
 
 
 def load_session(db: Session, session_id: str) -> HandoverSession:
@@ -100,6 +132,9 @@ def summary(row: HandoverSession) -> SessionSummary:
         position=row.position,
         mode=row.mode or "reassignment",
         task_name=row.task_name,
+        successor=row.successor,
+        successor_login_id=row.successor_login_id or "",
+        handover_date=row.handover_date,
         stage=row.stage,
         status=row.status,
         document_version=row.document_version,
@@ -108,14 +143,23 @@ def summary(row: HandoverSession) -> SessionSummary:
     )
 
 
+def owner_login_id(db: Session, row: HandoverSession) -> str:
+    """세션을 만든 로그인 계정의 아이디(user:N 소유자만). 화면이 인계자 본인인지 가려 읽기 전용 여부를 정한다."""
+    if not row.user_id.startswith("user:"):
+        return ""
+    try:
+        return db.scalar(select(User.login_id).where(User.id == int(row.user_id.split(":", 1)[1]))) or ""
+    except ValueError:
+        return ""
+
+
 def detail(db: Session, row: HandoverSession) -> SessionDetail:
     gaps = row.gaps
     last_id = db.scalar(select(func.max(Message.id)).where(Message.session_id == row.id)) or 0
     return SessionDetail(
         **summary(row).model_dump(),
         duties=row.duties,
-        successor=row.successor,
-        handover_date=row.handover_date,
+        owner_login_id=owner_login_id(db, row),
         progress=Progress(message=row.progress_message, current=row.progress_current, total=row.progress_total),
         error=row.error,
         engine=row.engine,
