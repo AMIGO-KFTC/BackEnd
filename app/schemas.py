@@ -410,14 +410,17 @@ class TeamGuidelineItem(_Stripped):
 
 
 class TeamGuidelineIn(_Stripped):
-    items: list[TeamGuidelineItem] = Field(default_factory=list, max_length=30, description="우리 팀 인수인계서에 담는 항목(자료에 있으면 이 이름으로 정리)")
-    notes: str = Field(default="", max_length=2000, description="팀 특징·작성 지침(자유 글)")
+    # 보낸 필드만 바꾼다(보내지 않은 필드는 그대로). 항목 화면은 items·notes 를, AI 맞춤 설정 화면은 prompt 만 보낸다.
+    items: list[TeamGuidelineItem] | None = Field(default=None, max_length=30, description="우리 팀 인수인계서에 담는 항목(자료에 있으면 이 이름으로 정리)")
+    notes: str | None = Field(default=None, max_length=2000, description="팀 특징·작성 지침(자유 글)")
+    prompt: str | None = Field(default=None, max_length=2000, description="팀 전용 프롬프트: AI 가 항상 따라야 하는 역할과 판단 기준")
 
 
 class TeamGuidelineOut(Result):
     organization: str = Field(description="지침이 적용되는 소속(부서 + 팀)")
     items: list[TeamGuidelineItem]
     notes: str
+    prompt: str
     updated_at: datetime | None = None
     updated_by: str = ""
     editable: bool = Field(description="이 계정이 지침을 저장할 수 있는지")

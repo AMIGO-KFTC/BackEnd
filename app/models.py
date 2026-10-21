@@ -64,6 +64,7 @@ class TeamGuideline(Base):
     organization: Mapped[str] = mapped_column(String(100), primary_key=True)
     items_json: Mapped[str] = mapped_column(Text, default="[]")  # [{id, name, instruction}]
     notes: Mapped[str] = mapped_column(Text, default="")
+    prompt: Mapped[str] = mapped_column(Text, default="")  # 팀 전용 프롬프트(AI 가 항상 따라야 하는 역할과 판단 기준)
     updated_by: Mapped[str] = mapped_column(String(50), default="")
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
