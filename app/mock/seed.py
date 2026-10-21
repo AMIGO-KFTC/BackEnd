@@ -3,6 +3,7 @@
 데모 계정 demo / demo1234 (김민수 · 디지털전략부 웹서비스팀 과장, 관리자는 admin / admin1234)에 진행 단계가 다른 단위업무 3건을 넣어 두어,
 화면이 각 상태(문서 완성 / 질문에 답할 차례 / 자료 올리기 전)를 바로 그려 볼 수 있게 한다.
 같은 팀에 팀원 2명(seoyeon.lee, junho.park · 비밀번호 demo1234)을 더 넣어 관리자 페이지의 팀 인수인계 현황을 확인할 수 있다.
+이서연이 완성한 '모바일 웹 운영' 인수인계서를 김민수에게 보내 두어 '인수받은 내용'도 바로 확인할 수 있다.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select
 
-from ..models import ConversationRead, FileBlob, Message, Source, UnitTask, User, UserProfile
+from ..models import ConversationRead, FileBlob, HandoverSession, HandoverTransfer, Message, Source, UnitTask, User, UserProfile
 from ..security import hash_password
 from . import scenario
 
@@ -122,8 +123,29 @@ def seed_demo(services: Services) -> None:
                     last = db.scalar(select(func.max(Message.id)).where(Message.session_id == session_id))
                     db.add(ConversationRead(session_id=session_id, user_id=user_id, last_read_message_id=last))
                     db.commit()
+        _seed_transfer(services)
     finally:
         agent.delay = agent_delay
+
+
+def _seed_transfer(services: Services) -> None:
+    """이서연이 완성한 '모바일 웹 운영' 인수인계서를 김민수(demo)에게 보내 둔다(인수받은 내용 화면 확인용)."""
+    with services.db() as db:
+        sender = db.scalar(select(User).where(User.login_id == "seoyeon.lee"))
+        recipient = db.scalar(select(User).where(User.login_id == DEMO_LOGIN))
+        row = db.scalar(select(HandoverSession).where(HandoverSession.user_id == sender.owner_key, HandoverSession.task_name == "모바일 웹 운영"))
+        if row is None or not row.document_md:
+            return
+        db.add(
+            HandoverTransfer(
+                id=uuid.uuid4().hex, session_id=row.id, sender_id=sender.id, recipient_id=recipient.id, title=row.title, task_name=row.task_name,
+                mode=row.mode, sender_name=row.owner_name, sender_organization=row.organization, sender_position=row.position,
+                handover_date=row.handover_date, document_version=row.document_version, markdown=row.document_md,
+                message="모바일 웹 운영 업무 인수인계서입니다. 앱 연계 점검 일정은 3장 정기업무를 꼭 확인해 주세요.",
+            )
+        )
+        row.successor = recipient.name
+        db.commit()
 
 
 def _user(services: Services, session_id: str, text: str, kind: str = "answer") -> None:
