@@ -111,15 +111,24 @@ def test_forgot_and_reset_password(client, settings):
     assert hidden["reset_token"] is None
 
 
+def make_admin(client, login_id: str) -> None:
+    """처음 관리자는 DB 에서 직접 지정한다(관리자 아이디 설정 기능 없음)."""
+    from app.models import User
+
+    with client.app.state.services.db() as db:
+        db.query(User).filter(User.login_id == login_id).update({"is_admin": True})
+        db.commit()
+
+
 def test_admin_role_and_admin_api(tmp_path):
-    settings = Settings(data_dir=tmp_path / "data", admin_login_ids="boss", workers=2)
+    settings = Settings(data_dir=tmp_path / "data", workers=2)
     with TestClient(create_app(settings)) as c:
         signup(c, {"login_id": "boss", "password": "boss-password", "name": "최관리"})
         signup(c, {**ACCOUNT})
-        # AMIGO_ADMIN_LOGIN_IDS 는 서버를 켤 때 반영된다
+        # 가입만 해서는 관리자가 아니다
         assert login(c, "boss", "boss-password").json()["user"]["is_admin"] is False
         assert c.get("/api/admin/users").status_code == 403
-    with TestClient(create_app(settings)) as c:
+        make_admin(c, "boss")
         res = login(c, "boss", "boss-password").json()
         assert res["user"]["is_admin"] is True
         users = c.get("/api/admin/users").json()
@@ -154,10 +163,10 @@ def test_old_database_gets_new_columns(tmp_path):
         conn.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY, login_id VARCHAR(50) UNIQUE, password_hash VARCHAR(200), name VARCHAR(50), created_at DATETIME, last_login_at DATETIME)"))
         conn.execute(text("INSERT INTO users (login_id, password_hash, name, created_at) VALUES ('old', 'x', '예전', '2026-01-01 00:00:00')"))
     engine.dispose()
-    with TestClient(create_app(Settings(data_dir=data, admin_login_ids="old", workers=2))) as c:
+    with TestClient(create_app(Settings(data_dir=data, workers=2))) as c:
         with c.app.state.services.db() as db:
             row = db.execute(text("SELECT is_admin, email FROM users WHERE login_id = 'old'")).one()
-        assert row == (1, "")
+        assert row == (0, "")  # 새 컬럼은 기본값(관리자 아님 · 이메일 없음)으로 채워진다
         c.post("/api/auth/signup", json={"login_id": "new.user", "password": "new-password", "name": "새사람"})
         assert login(c, "new.user", "new-password").json()["user"]["is_admin"] is False
 
