@@ -110,6 +110,27 @@ class MockAgent:
             self._sleep()
             self._skip(st, emit)
 
+    def reopen_question(self, thread_id: str, gap_id: str, kb: Any, on_event: EventHandler = None) -> None:
+        """이미 답했거나 건너뛴 질문으로 돌아가 다시 묻는다(질의응답에서만). 새 답은 앞의 답을 덮어쓴다."""
+        with self._lock(thread_id):
+            st, emit = self._ready(thread_id), _Emitter(on_event)
+            if st["stage"] != "qna":
+                raise AgentStateError("질의응답 중에만 이전 질문으로 돌아갈 수 있습니다.")
+            target = next((g for g in st["gaps"] if g["id"] == gap_id), None)
+            if target is None:
+                raise AgentStateError("돌아갈 질문을 찾지 못했습니다.")
+            if target["status"] not in ("answered", "resolved", "skipped"):
+                raise AgentStateError("아직 답하지 않은 질문이라 돌아갈 수 없습니다.")
+            st["waiting"] = False
+            self._sleep()
+            for g in st["gaps"]:
+                if g["status"] == "asked":
+                    g["status"] = "open"  # 지금 묻던 질문은 이 질문 다음에 다시 묻는다
+            target["status"] = "open"
+            st["pending"] = {}
+            st["question_count"] = sum(1 for g in st["gaps"] if g["status"] in ("answered", "resolved", "skipped"))  # _next 가 +1 한다
+            self._next(st, emit, ack="이전 질문으로 돌아왔어요. 새로 답해 주시면 앞의 답을 그 내용으로 고칠게요.")
+
     def finish(self, thread_id: str, kb: Any, on_event: EventHandler = None) -> None:
         with self._lock(thread_id):
             st, emit = self._ready(thread_id), _Emitter(on_event)

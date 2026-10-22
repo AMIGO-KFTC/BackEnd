@@ -331,6 +331,10 @@ class StateOut(BaseModel):
     usage_total: UsageTotal
 
 
+class ReopenIn(BaseModel):
+    gap_id: str = Field(min_length=1, max_length=100, description="다시 답할 질문(gap)의 id. 이미 답했거나 건너뛴 질문만 된다")
+
+
 class ChatIn(BaseModel):
     text: str = Field(min_length=1, max_length=4000, description="인계자 답변(질의응답) 또는 검토 의견(문서 검토 단계)")
     reply_to: int | None = Field(
