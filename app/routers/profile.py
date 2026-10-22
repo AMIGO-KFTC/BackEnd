@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from ..models import HandoverSession, User, UserProfile
 from ..schemas import ProfileIn, ProfileResult
 from .deps import current_user, get_db, profile_out
+from .me import employee_no_taken
 
 router = APIRouter(prefix="/api/profile", tags=["profile"])
 
@@ -26,6 +27,10 @@ def save_profile(body: ProfileIn, user: User = Depends(current_user), db: Sessio
     profile = user.profile or UserProfile(user_id=user.id)
     profile.department, profile.team, profile.position = body.department, body.team, body.position
     user.name = body.name
+    if body.employee_no is not None:
+        if employee_no_taken(db, body.employee_no, exclude_user_id=user.id):
+            raise HTTPException(status_code=409, detail="이미 다른 계정이 쓰고 있는 사번입니다.")
+        user.employee_no = body.employee_no
     user.profile = profile
     # 이미 만든 단위업무 인수인계서에도 바뀐 인계자 정보를 반영한다(다음 분석·문서 생성부터 적용)
     for row in db.scalars(select(HandoverSession).where(HandoverSession.user_id == user.owner_key)):

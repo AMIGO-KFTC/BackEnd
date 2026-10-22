@@ -28,6 +28,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(200))
     name: Mapped[str] = mapped_column(String(50))
     email: Mapped[str] = mapped_column(String(254), default="", index=True)  # 비밀번호 찾기 본인 확인·안내 메일 주소(소문자)
+    employee_no: Mapped[str] = mapped_column(String(20), default="", index=True)  # 사번. 로그인 아이디(login_id)와는 별개 값이고 프로필에서 고친다
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)  # 관리자 권한(관리자 페이지 · /api/admin)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     last_login_at: Mapped[datetime | None] = mapped_column(default=None)

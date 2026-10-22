@@ -20,6 +20,15 @@ from .transfers import transfer_counts
 router = APIRouter(prefix="/api/me", tags=["mypage"])
 
 
+def employee_no_taken(db: Session, employee_no: str, exclude_user_id: int | None = None) -> bool:
+    if not employee_no:
+        return False
+    query = select(User.id).where(func.lower(User.employee_no) == employee_no.lower())
+    if exclude_user_id is not None:
+        query = query.where(User.id != exclude_user_id)
+    return db.scalar(query) is not None
+
+
 def email_taken(db: Session, email: str, exclude_user_id: int | None = None) -> bool:
     if not email:
         return False
@@ -67,6 +76,11 @@ def update_me(body: MyInfoUpdate, user: User = Depends(current_user), db: Sessio
         if email_taken(db, email, exclude_user_id=user.id):
             raise HTTPException(status_code=409, detail="다른 계정이 쓰고 있는 이메일입니다.")
         user.email = email
+    if "employee_no" in changes:
+        employee_no = changes["employee_no"] or ""
+        if employee_no_taken(db, employee_no, exclude_user_id=user.id):
+            raise HTTPException(status_code=409, detail="이미 다른 계정이 쓰고 있는 사번입니다.")
+        user.employee_no = employee_no
     if "name" in changes:
         user.name = changes["name"]
     if profile_fields:

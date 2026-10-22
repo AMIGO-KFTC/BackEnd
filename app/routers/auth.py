@@ -19,7 +19,7 @@ from ..security import DUMMY_HASH, hash_password, new_token, token_hash, verify_
 from ..services.accounts import issue_reset_token, set_password
 from ..services.container import Services
 from .deps import COOKIE_NAME, as_utc, current_user, get_db, get_services, request_token, user_out
-from .me import email_taken
+from .me import email_taken, employee_no_taken
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -36,7 +36,9 @@ def signup(body: SignupIn, db: Session = Depends(get_db), services: Services = D
     email = body.email.lower()
     if email_taken(db, email):
         raise HTTPException(status_code=409, detail="다른 계정이 쓰고 있는 이메일입니다.")
-    user = User(login_id=login_id, password_hash=hash_password(body.password), name=body.name, email=email)
+    if employee_no_taken(db, body.employee_no):
+        raise HTTPException(status_code=409, detail="이미 다른 계정이 쓰고 있는 사번입니다.")
+    user = User(login_id=login_id, password_hash=hash_password(body.password), name=body.name, email=email, employee_no=body.employee_no)
     db.add(user)
     try:
         db.commit()

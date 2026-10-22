@@ -648,7 +648,7 @@ RAG 메일 파서가 보낸 사람·받는 사람·일시·제목을 출처 표�
 | GET | `/api/admin/handovers` | 우리 팀 구성원이 인계자인 인수인계 목록(인수자·질문 수·남은 항목 포함) |
 | DELETE | `/api/admin/members/{user_id}` | 우리 팀 구성원 삭제(그 구성원의 인수인계·자료·문서 포함). 본인은 `400`, 다른 팀은 `404`, AI 처리 중이면 `409` |
 
-시연용 계정(`scripts/seed_accounts.py`, 비밀번호는 스크립트 참고): IT아미고팀 팀장 김미고 `amigoteamjang` · 계장 김민준 `1111111`(사번) · 계장 최환 `hwan`,
+시연용 계정(`scripts/seed_accounts.py`, 비밀번호는 스크립트 참고): IT아미고팀 팀장 김미고 `amigoteamjang` · 계장 김민준 `demo`(사번 1111111) · 계장 최환 `hwan`,
 AI개발팀 팀장 최고미 `aiteamjang` · 계장 임윤희 `yunhui`. 인수인계는 김민준 → 임윤희, 임윤희 → 최환, 김미고 → 최고미 로 들어 있습니다.
 
 ### 부서별 특이사항 (AI 분석·질문·대화에 반영)

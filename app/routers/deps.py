@@ -109,11 +109,11 @@ def profile_out(user: User) -> ProfileOut | None:
     if user.profile is None:
         return None
     p = user.profile
-    return ProfileOut(department=p.department, position=p.position, team=p.team, name=user.name)
+    return ProfileOut(department=p.department, position=p.position, team=p.team, name=user.name, employee_no=user.employee_no or "")
 
 
 def user_out(user: User) -> UserOut:
-    return UserOut(id=user.id, login_id=user.login_id, name=user.name, email=user.email or "", is_admin=bool(user.is_admin), profile=profile_out(user))
+    return UserOut(id=user.id, login_id=user.login_id, name=user.name, email=user.email or "", employee_no=user.employee_no or "", is_admin=bool(user.is_admin), profile=profile_out(user))
 
 
 def load_session(db: Session, session_id: str) -> HandoverSession:

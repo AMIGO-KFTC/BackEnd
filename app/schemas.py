@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 
 LOGIN_ID_PATTERN = r"^[A-Za-z0-9._@-]{3,50}$"
 EMAIL_PATTERN = r"^([^@\s]{1,64}@[^@\s]+\.[^@\s]{2,})?$"  # 비우거나(선택) 형식만 확인
+EMPLOYEE_NO_PATTERN = r"^[A-Za-z0-9]{0,20}$"  # 사번: 비우거나 영문·숫자 20자 이하
 
 
 class _Stripped(BaseModel):
@@ -35,6 +36,7 @@ class SignupIn(_Stripped):
     password: str = Field(min_length=8, max_length=128, description="비밀번호(8자 이상)")
     name: str = Field(min_length=1, max_length=50, description="이름")
     email: str = Field(default="", max_length=254, pattern=EMAIL_PATTERN, description="이메일(선택). 비밀번호 찾기에 쓴다")
+    employee_no: str = Field(default="", pattern=EMPLOYEE_NO_PATTERN, description="사번(선택). 로그인 아이디와는 별개 값")
 
 
 class LoginIn(_Stripped):
@@ -47,6 +49,7 @@ class ProfileIn(_Stripped):
     position: str = Field(min_length=1, max_length=50, description="직위")
     team: str = Field(default="", max_length=100, description="팀")
     name: str = Field(min_length=1, max_length=50, description="이름")
+    employee_no: str | None = Field(default=None, pattern=EMPLOYEE_NO_PATTERN, description="사번. 보내지 않으면 그대로 두고, 빈 문자열이면 비운다")
 
 
 class ProfileOut(BaseModel):
@@ -54,6 +57,7 @@ class ProfileOut(BaseModel):
     position: str
     team: str
     name: str
+    employee_no: str = ""
 
 
 class UserOut(BaseModel):
@@ -61,6 +65,7 @@ class UserOut(BaseModel):
     login_id: str
     name: str
     email: str = ""
+    employee_no: str = Field(default="", description="사번(로그인 아이디와 별개)")
     is_admin: bool = Field(default=False, description="관리자 권한. true 면 관리자 페이지(/api/admin)를 쓸 수 있다")
     profile: ProfileOut | None
 
@@ -91,6 +96,7 @@ class MyInfoUpdate(_Stripped):
     team: str | None = Field(default=None, max_length=100, description="팀명(비우려면 빈 문자열)")
     position: str | None = Field(default=None, min_length=1, max_length=50, description="직위")
     email: str | None = Field(default=None, max_length=254, pattern=EMAIL_PATTERN, description="이메일(비우려면 빈 문자열)")
+    employee_no: str | None = Field(default=None, pattern=EMPLOYEE_NO_PATTERN, description="사번(비우려면 빈 문자열)")
 
 
 class MyStats(BaseModel):
