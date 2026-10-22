@@ -269,8 +269,8 @@ class DocumentVersion(Base):
 class HandoverTransfer(Base):
     """인수인계서 전송: 인계자가 인수자(회원)에게 보낸 산출물.
 
-    보낸 시점의 문서(markdown·버전)를 그대로 복사해 둔다. 그래서 인계자가 나중에 문서를 고쳐도 인수자는 받은 그대로 보고,
-    고친 문서를 다시 보내면 새 전송으로 쌓인다. 인계 세션이 지워져도(session_id → NULL) 받은 문서는 남는다.
+    인수자는 인계자의 **최신 인수인계서**(직접 수정한 버전 포함)를 본다. 보낸 시점의 문서(markdown·버전)도 복사해 두어
+    무엇을 보냈는지 남기고, 인계 세션이 지워져도(session_id → NULL) 보낸 시점 문서로 볼 수 있게 한다.
     """
 
     __tablename__ = "handover_transfers"
@@ -295,6 +295,7 @@ class HandoverTransfer(Base):
 
     sender: Mapped[User] = relationship(foreign_keys=[sender_id])
     recipient: Mapped[User] = relationship(foreign_keys=[recipient_id])
+    session: Mapped[HandoverSession | None] = relationship()
 
 
 class FileBlob(Base):

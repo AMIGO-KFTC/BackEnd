@@ -37,7 +37,7 @@ from ..services.container import Services
 from ..services.guidelines import organization_key
 from ..services.reports import collect_tasks, list_teams, member_activity, member_stats, team_members, team_totals
 from .deps import as_utc, get_db, get_services, require_admin, user_out
-from .handovers import member_out, received_out
+from .handovers import latest_versions, member_out, received_out
 from .sessions import remove_handover_session
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -219,11 +219,13 @@ def list_team_handovers(admin: User = Depends(require_admin), db: Session = Depe
     organization, members = own_team_members(db, admin)
     logins = {u.owner_key: u.login_id for u in members}
     out = []
-    for row in own_team_sessions(db, members):
+    rows = list(own_team_sessions(db, members))
+    latest = latest_versions(db, [r.id for r in rows])
+    for row in rows:
         gaps = row.gaps
         out.append(
             AdminHandoverOut(
-                **received_out(row, logins.get(row.user_id, "")).model_dump(),
+                **received_out(row, logins.get(row.user_id, ""), latest.get(row.id)).model_dump(),
                 successor=row.successor,
                 successor_login_id=row.successor_login_id or "",
                 question_count=row.question_count,

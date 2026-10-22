@@ -44,7 +44,7 @@ def test_send_by_name_and_recipient_sees_it_in_received(mock_client):
     assert mock_client.get(f"/api/sessions/{sid}/messages").json()[-1]["content"] == body["message"]  # 대화 기록에도 남는다
     assert mock_client.get(f"/api/sessions/{sid}").json()["successor"] == "이서연"  # 비어 있던 인수자 칸을 채운다
 
-    # 보낸 뒤 문서를 고쳐도 받은 문서는 보낸 시점 그대로
+    # 보낸 뒤 '직접 수정하기'로 고쳐 저장하면 인수자에게도 고친 최신 버전이 보인다
     mock_client.put(f"/api/sessions/{sid}/document", json={"markdown": doc["markdown"] + "\n보낸 뒤 고침", "base_version": doc["version"]})
     assert mock_client.get("/api/me").json()["stats"]["sent_transfers"] == 1
     mock_client.post("/api/auth/logout")
@@ -56,20 +56,26 @@ def test_send_by_name_and_recipient_sees_it_in_received(mock_client):
     inbox = mock_client.get("/api/me/received").json()
     assert inbox["total"] == 1 and inbox["unread_count"] == 1 and inbox["message"] == "인수받은 인수인계서 1건(새로 받은 것 1건)"
     item = inbox["transfers"][0]
+    assert (item["sent_version"], item["document_version"], item["updated_since_sent"]) == (doc["version"], doc["version"] + 1, True)
+    assert item["document_origin"] == "user" and item["document_origin_label"] == "직접 수정" and item["document_updated_at"]
     assert (item["sender"]["name"], item["sender"]["position"], item["message"]) == ("김민수", "과장", "SSL 갱신 일정 꼭 확인해 주세요.")
 
     detail = mock_client.get(f"/api/me/received/{item['id']}").json()
-    assert detail["markdown"] == doc["markdown"] and "보낸 뒤 고침" not in detail["markdown"] and detail["is_read"] is True
+    assert detail["markdown"].endswith("보낸 뒤 고침") and detail["is_read"] is True
+    sent_copy = mock_client.get(f"/api/me/received/{item['id']}?sent=true").json()  # 보낸 시점 문서도 볼 수 있다
+    assert sent_copy["markdown"] == doc["markdown"]
     assert mock_client.get("/api/me/received").json()["unread_count"] == 0
     assert mock_client.get("/api/me/received?unread_only=true").json()["total"] == 0
     assert mock_client.get("/api/me/received?q=홈페이지").json()["total"] == 1
     assert mock_client.get("/api/me/received?q=없는업무").json()["message"] == "아직 인수받은 인수인계서가 없습니다."
     md = mock_client.get(f"/api/me/received/{item['id']}/download?format=md")
-    assert md.status_code == 200 and md.content.decode() == doc["markdown"] and "v1.md" in md.headers["content-disposition"]
+    assert md.status_code == 200 and md.content.decode().endswith("보낸 뒤 고침") and "v2.md" in md.headers["content-disposition"]
+    assert mock_client.get(f"/api/me/received/{item['id']}/download?format=md&sent=true").content.decode() == doc["markdown"]
     assert mock_client.get(f"/api/me/received/{item['id']}/download?format=docx").status_code == 200
 
-    # 인수자는 원래 세션(인계자의 작업)에는 들어갈 수 없다
-    assert mock_client.get(f"/api/sessions/{detail['session_id']}/document").status_code == 404
+    # 보내면 인수자로 연결되어 원래 세션 문서를 읽을 수는 있지만(받은 인수인계) 고칠 수는 없다
+    assert mock_client.get(f"/api/sessions/{detail['session_id']}/document").status_code == 200
+    assert mock_client.put(f"/api/sessions/{detail['session_id']}/document", json={"markdown": "x", "base_version": 1}).status_code == 404
     mock_client.post("/api/auth/logout")
 
     # 인계자는 읽음 여부를 본다 / 받는 사람이 아니면 받은 문서를 볼 수 없다
@@ -141,3 +147,37 @@ def test_same_name_asks_to_choose_and_sender_session_deleted(client):
     assert kept["markdown"] == "# 예산 편성 인수인계서" and kept["session_id"] is None
     login(client, "lee.one", "password-123")
     assert client.get("/api/me/received").json()["total"] == 0
+
+
+def test_recipient_sees_each_new_edit(mock_client):
+    """보낸 뒤 고친 문서: 인수자가 열어 본 뒤 또 고치면 '새 버전' 표시. 받은 인수인계(/api/handovers/received)에도 최신 버전이 뜬다."""
+    login(mock_client, "demo")
+    sid = task_session(mock_client, "기관 홈페이지 운영")
+    doc = mock_client.get(f"/api/sessions/{sid}/document").json()
+    mock_client.post(f"/api/sessions/{sid}/transfers", json={"recipient_name": "박준호"})
+    assert mock_client.get(f"/api/sessions/{sid}").json()["successor_login_id"] == "junho.park"  # 받은 인수인계에도 연결
+    mock_client.post("/api/auth/logout")
+
+    login(mock_client, "junho.park")
+    tid = mock_client.get("/api/me/received").json()["transfers"][0]["id"]
+    first = mock_client.get(f"/api/me/received/{tid}").json()
+    assert first["updated_since_sent"] is False and first["markdown"] == doc["markdown"] and first["document_origin"] == "ai"
+    received = mock_client.get("/api/handovers/received").json()["handovers"]
+    assert [(h["id"], h["document_version"], h["document_origin"]) for h in received] == [(sid, doc["version"], "ai")]
+    # 인수자는 읽기만 할 수 있다
+    assert mock_client.put(f"/api/sessions/{sid}/document", json={"markdown": "x", "base_version": doc["version"]}).status_code == 404
+    mock_client.post("/api/auth/logout")
+
+    login(mock_client, "demo")  # 인계자가 직접 고쳐 저장
+    saved = mock_client.put(f"/api/sessions/{sid}/document", json={"markdown": doc["markdown"] + "\n담당자 연락처 추가", "base_version": doc["version"]}).json()
+    assert saved["saved"] is True
+    mock_client.post("/api/auth/logout")
+
+    login(mock_client, "junho.park")
+    item = mock_client.get("/api/me/received").json()["transfers"][0]
+    assert item["updated_since_read"] is True and item["updated_since_sent"] is True and item["document_version"] == saved["document"]["version"]
+    assert mock_client.get(f"/api/me/received/{tid}").json()["markdown"].endswith("담당자 연락처 추가")
+    assert mock_client.get("/api/me/received").json()["transfers"][0]["updated_since_read"] is False  # 열어 보면 표시가 꺼진다
+    latest = mock_client.get("/api/handovers/received").json()["handovers"][0]
+    assert latest["document_version"] == saved["document"]["version"] and latest["document_origin"] == "user" and latest["document_origin_label"] == "직접 수정"
+    assert mock_client.get(f"/api/sessions/{sid}/document").json()["markdown"].endswith("담당자 연락처 추가")  # 받은 인수인계 화면이 읽는 문서

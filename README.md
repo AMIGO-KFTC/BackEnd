@@ -579,8 +579,11 @@ AI 가 만든 초안과 사용자가 화면에서 직접 고친 문서를 모두
 | GET | `/api/me/received/{transfer_id}` | 받은 산출물 보기(Markdown). 처음 열면 읽음 처리 |
 | GET | `/api/me/received/{transfer_id}/download?format=pdf\|docx\|md` | 받은 산출물 내려받기 |
 
-- 보낸 시점의 문서를 복사해 둡니다(`handover_transfers`). 인계자가 나중에 고쳐도 인수자는 받은 그대로 보고, 고친 문서는 다시 보내면 새로 쌓입니다.
-- 인계자가 단위업무를 지워도 받은 문서는 남습니다. 인수자는 인계자의 작업(세션)에는 들어갈 수 없고 받은 문서만 봅니다.
+- 인수자는 언제나 인계자의 **최신 인수인계서**를 봅니다. 보낸 뒤 인계자가 '직접 수정하기'로 고쳐 저장(`PUT /document`)하면
+  인수 현황에도 고친 버전이 뜹니다: `document_version`(지금 버전) · `sent_version`(보낸 버전) · `updated_since_sent` · `updated_since_read`(열어 본 뒤 또 고침) ·
+  `document_origin`(ai/user/restore) · `document_updated_at`. 보낸 시점 문서도 남겨 두어 `?sent=true` 로 보거나 내려받을 수 있습니다.
+- 보내면 그 세션의 인수자 계정(`successor_login_id`)이 비어 있을 때 받는 사람으로 채워 `GET /api/handovers/received`(받은 인수인계)에도 나타납니다.
+  인수자는 읽기만 할 수 있고(문서 수정·AI 작업은 인계자만), 인계자가 단위업무를 지우면 보낸 시점 문서로 계속 볼 수 있습니다.
 - 보내면 인계자 대화 기록에 안내가 남고, 인수자 칸이 비어 있으면 받는 사람 이름으로 채웁니다.
 - `/api/me` 의 `stats` 에 보낸 수(`sent_transfers`)·받은 수(`received_transfers`)·안 읽은 수(`received_unread`)가 있어 '인수받은 내용' 배지에 씁니다.
 - 가상 응답 모드: 이서연이 '모바일 웹 운영' 인수인계서를 김민수(`demo`)에게 보내 둔 상태로 시작합니다.

@@ -2,7 +2,9 @@
 
 - 인계자: POST /api/sessions/{session_id}/transfers  {"recipient_name": "이서연", "message": "..."}
   이름이 같은 회원이 여럿이면 409 와 후보(detail.candidates)를 돌려주고, 화면에서 고른 recipient_id 로 다시 보낸다.
-  보낸 시점의 문서를 복사해 두므로 나중에 문서를 고쳐도 인수자가 받은 문서는 그대로다(고친 문서는 다시 보내면 새 전송).
+  보내면 그 세션의 인수자 계정(successor_login_id)도 채워 '받은 인수인계'(/api/handovers/received)에도 나타난다.
+- 인수자는 인계자의 **최신 인수인계서**를 본다. 인계자가 보낸 뒤 '직접 수정하기'로 고쳐 저장하면 인수 현황에도 고친 버전이
+  뜬다(updated_since_sent). 보낸 시점 문서도 남겨 두어 ?sent=true 로 볼 수 있고, 인계자가 업무를 지우면 그 문서를 보여 준다.
 - 인수자: GET /api/me/received(인수 현황) → GET /api/me/received/{id}(산출물 보기, 처음 열면 읽음 처리) → 내려받기
 - 인계자: GET /api/sessions/{session_id}/transfers · GET /api/me/sent(보낸 기록과 읽음 여부)
 """
@@ -12,6 +14,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from datetime import datetime
 from typing import Literal
 from urllib.parse import quote
 
@@ -22,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from ..models import HandoverTransfer, Message, User, UserProfile, utcnow
 from ..schemas import RecipientCandidate, RecipientSearchOut, TransferDetail, TransferIn, TransferResult, TransfersOut, TransferSummary
+from ..services.documents import ORIGIN_LABELS, latest_version
 from ..services.exporters import to_docx, to_pdf
 from .deps import as_utc, current_user, get_db, load_session
 from .documents import MEDIA_TYPES
@@ -42,19 +46,38 @@ def candidate(user: User) -> RecipientCandidate:
     )
 
 
-def summary(t: HandoverTransfer) -> TransferSummary:
+def _current(db: Session, t: HandoverTransfer) -> tuple[str, int, str, datetime | None]:
+    """인수자에게 보여 줄 문서: 인계 세션이 남아 있으면 최신 버전(직접 수정 포함), 지워졌으면 보낸 시점 문서."""
+    row = t.session
+    if row is None or not row.document_md:
+        return t.markdown, t.document_version, "", as_utc(t.created_at)
+    latest = latest_version(db, row.id)
+    origin = latest.origin if latest is not None else "ai"
+    updated_at = as_utc(latest.created_at) if latest is not None else as_utc(row.updated_at)
+    return row.document_md, row.document_version, origin, updated_at
+
+
+def summary(db: Session, t: HandoverTransfer) -> TransferSummary:
+    _, version, origin, updated_at = _current(db, t)
+    read_at = as_utc(t.read_at) if t.read_at else None
     return TransferSummary(
         id=t.id,
         title=t.title,
         task_name=t.task_name,
         mode=t.mode,
-        document_version=t.document_version,
+        document_version=version,
+        sent_version=t.document_version,
+        updated_since_sent=version != t.document_version,
+        updated_since_read=bool(read_at and updated_at and updated_at > read_at and version != t.document_version),
+        document_origin=origin or "ai",
+        document_origin_label=ORIGIN_LABELS.get(origin, "보낸 시점 문서") if origin else "보낸 시점 문서",
+        document_updated_at=updated_at,
         sender=candidate(t.sender),
         recipient=candidate(t.recipient),
         handover_date=t.handover_date,
         message=t.message,
         created_at=as_utc(t.created_at),
-        read_at=as_utc(t.read_at) if t.read_at else None,
+        read_at=read_at,
         is_read=t.read_at is not None,
     )
 
@@ -123,11 +146,13 @@ def send_transfer(session_id: str, body: TransferIn, user: User = Depends(curren
     db.add(transfer)
     if not row.successor:  # 인수자 칸이 비어 있으면 보낸 사람으로 채운다
         row.successor = recipient.name
+    if not row.successor_login_id:  # '받은 인수인계'(/api/handovers/received)에도 나타나게
+        row.successor_login_id = recipient.login_id
     notice = f"인수인계서 v{row.document_version}을(를) {recipient.name}님에게 보냈습니다."
     db.add(Message(session_id=row.id, role="system", kind="info", content=notice, meta_json=json.dumps({"transfer_id": transfer.id}, ensure_ascii=False)))
     db.commit()
     db.refresh(transfer)
-    return TransferResult(message=notice, transfer=summary(transfer))
+    return TransferResult(message=notice, transfer=summary(db, transfer))
 
 
 @session_router.get("/transfers", response_model=TransfersOut, summary="이 인수인계서를 보낸 기록(받는 사람·읽음 여부)")
@@ -136,13 +161,13 @@ def session_transfers(session_id: str, user: User = Depends(current_user), db: S
     if row.user_id != user.owner_key:
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
     rows = list(db.scalars(select(HandoverTransfer).where(HandoverTransfer.session_id == row.id).order_by(HandoverTransfer.created_at.desc())))
-    return TransfersOut(transfers=[summary(t) for t in rows], total=len(rows))
+    return TransfersOut(transfers=[summary(db, t) for t in rows], total=len(rows))
 
 
 @router.get("/me/sent", response_model=TransfersOut, summary="내가 보낸 인수인계서(받는 사람·읽음 여부)")
 def sent(user: User = Depends(current_user), db: Session = Depends(get_db)):
     rows = list(db.scalars(select(HandoverTransfer).where(HandoverTransfer.sender_id == user.id).order_by(HandoverTransfer.created_at.desc())))
-    return TransfersOut(transfers=[summary(t) for t in rows], total=len(rows))
+    return TransfersOut(transfers=[summary(db, t) for t in rows], total=len(rows))
 
 
 @router.get("/me/received", response_model=TransfersOut, summary="인수받은 내용: 인수 현황(받은 인수인계서 목록)")
@@ -161,7 +186,7 @@ def received(
     rows = list(db.scalars(query.order_by(HandoverTransfer.created_at.desc())))
     unread = db.scalar(select(func.count(HandoverTransfer.id)).where(HandoverTransfer.recipient_id == user.id, HandoverTransfer.read_at.is_(None))) or 0
     message = f"인수받은 인수인계서 {len(rows)}건" + (f"(새로 받은 것 {unread}건)" if unread else "") if rows else "아직 인수받은 인수인계서가 없습니다."
-    return TransfersOut(message=message, transfers=[summary(t) for t in rows], total=len(rows), unread_count=unread)
+    return TransfersOut(message=message, transfers=[summary(db, t) for t in rows], total=len(rows), unread_count=unread)
 
 
 def _load_received(db: Session, user: User, transfer_id: str) -> HandoverTransfer:
@@ -171,31 +196,38 @@ def _load_received(db: Session, user: User, transfer_id: str) -> HandoverTransfe
     return t
 
 
-@router.get("/me/received/{transfer_id}", response_model=TransferDetail, summary="인수받은 산출물 보기(처음 열면 읽음 처리)")
-def received_detail(transfer_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+@router.get("/me/received/{transfer_id}", response_model=TransferDetail, summary="인수받은 산출물 보기(최신 버전, 열면 읽음 처리)")
+def received_detail(
+    transfer_id: str,
+    sent: bool = Query(default=False, description="true 면 보낸 시점의 문서"),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
     t = _load_received(db, user, transfer_id)
-    if t.read_at is None:
-        t.read_at = utcnow()
-        db.commit()
-    return TransferDetail(**summary(t).model_dump(), markdown=t.markdown, session_id=t.session_id)
+    t.read_at = utcnow()  # 열 때마다 갱신해 '열어 본 뒤 새 버전' 표시를 지운다
+    db.commit()
+    markdown = t.markdown if sent else _current(db, t)[0]
+    return TransferDetail(**summary(db, t).model_dump(), markdown=markdown, session_id=t.session_id)
 
 
 @router.get("/me/received/{transfer_id}/download", summary="인수받은 산출물 내려받기(pdf|docx|md)")
 def received_download(
     transfer_id: str,
     format: Literal["pdf", "docx", "md"] = Query(default="pdf"),
+    sent: bool = Query(default=False, description="true 면 보낸 시점의 문서"),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ):
     t = _load_received(db, user, transfer_id)
+    markdown, version = (t.markdown, t.document_version) if sent else _current(db, t)[:2]
     title = f"{t.sender_name} 인수인계서"
     if format == "pdf":
-        content = to_pdf(t.markdown, title=title)
+        content = to_pdf(markdown, title=title)
     elif format == "docx":
-        content = to_docx(t.markdown, title=title)
+        content = to_docx(markdown, title=title)
     else:
-        content = t.markdown.encode("utf-8")
-    base = re.sub(r"[^\w가-힣.-]+", "_", f"인수인계서_{t.sender_name}_{t.task_name or t.title}_v{t.document_version}").strip("_")
+        content = markdown.encode("utf-8")
+    base = re.sub(r"[^\w가-힣.-]+", "_", f"인수인계서_{t.sender_name}_{t.task_name or t.title}_v{version}").strip("_")
     headers = {"Content-Disposition": f"attachment; filename=\"handover.{format}\"; filename*=UTF-8''{quote(base + '.' + format)}"}
     return Response(content=content, media_type=MEDIA_TYPES[format], headers=headers)
 
