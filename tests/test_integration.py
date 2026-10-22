@@ -71,7 +71,7 @@ def test_unit_task_flow_with_real_rag_and_agent(client, sample_dir):
     # 장기휴가: 3개 장만(부재 중 처리할 단위 업무·세부 업무·시스템 접근 권한)
     upload(client, light["id"], sample_dir, SAMPLES[:2])
     wait_question(client, light["session_id"])
-    assert set(client.get(f"/api/sessions/{light['session_id']}").json()["slots"]) == {"leave_units", "leave_tasks", "leave_contacts", "systems"}
+    assert set(client.get(f"/api/sessions/{light['session_id']}").json()["slots"]) == {"leave_units", "leave_tasks", "systems"}
 
     # 질의응답 → 문서
     # 질문 순서는 자료에 따라 달라지므로, 앞의 질문들에 차례로 답한다(협업관계처럼 근거 번호가 없는 장과 시스템·정기업무 장이 섞여 있다)

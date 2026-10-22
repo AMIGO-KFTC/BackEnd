@@ -144,7 +144,7 @@ def test_leave_mode_uses_light_template(mock_client):
         if s["status"] == "waiting":
             break
         time.sleep(0.05)
-    assert set(s["slots"]) == {"leave_units", "leave_tasks", "leave_contacts", "systems"}  # 장기휴가 양식
+    assert set(s["slots"]) == {"leave_units", "leave_tasks", "systems"}  # 장기휴가 양식
 
 
 def test_progress_is_visible_with_delay(tmp_path):
