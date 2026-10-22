@@ -98,7 +98,7 @@ def test_full_flow_with_virtual_ai(mock_client):
     assert p["current_question"]["content"].startswith("수정한 내용으로")
     mock_client.post(f"/api/sessions/{sid}/chat", json={"text": "네, 맞아요"})
     p = wait_progress(mock_client, sid, lambda p: p["next_action"] == "answer_question" and p["current_question"]["number"] == 2)
-    assert p["current_question"]["content"].startswith("확인했습니다.") and p["questions"]["answered"] == 1
+    assert not p["current_question"]["content"].startswith(("확인했습니다.", "**[")) and p["questions"]["answered"] == 1  # 질문만 나온다
 
     # 건너뛰기 → 다음 질문, 지금 문서 생성 → 문서 v1
     assert mock_client.post(f"/api/sessions/{sid}/skip").status_code == 202

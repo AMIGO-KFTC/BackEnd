@@ -205,7 +205,7 @@ class MockAgent:
             if st["stage"] != "qna":
                 st["stage"] = "qna"
                 emit.stage("qna")
-            content = (ack + "\n\n" if ack else "") + f"**[{SLOT_BY_KEY[gap['slot']].title}]** {gap['question']}"
+            content = (ack + "\n\n" if ack else "") + gap["question"]  # 장 이름은 meta.slot 으로 화면 태그에 표시되므로 본문에 붙이지 않는다
             emit.say("question", content, gap_id=gap["id"], slot=gap["slot"], number=st["question_count"],
                      remaining=len(open_gaps) - 1, quick_replies=QUICK_REPLIES_QNA, allow_files=True)
             st["waiting"] = True
@@ -218,7 +218,7 @@ class MockAgent:
         gap = self._current_gap(st)
         if gap is None or gap["status"] != "asked":
             return self._next(st, emit)
-        emit.say("question", f"**[{SLOT_BY_KEY[gap['slot']].title}]** {gap['question']}", gap_id=gap["id"], slot=gap["slot"],
+        emit.say("question", gap["question"], gap_id=gap["id"], slot=gap["slot"],
                  number=st["question_count"], remaining=sum(1 for g in st["gaps"] if g["status"] == "open"),
                  quick_replies=QUICK_REPLIES_QNA, allow_files=True)
         st["waiting"] = True
@@ -253,7 +253,7 @@ class MockAgent:
         if item is not None:
             item["confirmed"] = True
         st["pending"] = {}
-        self._next(st, emit, ack="확인했습니다.")
+        self._next(st, emit)  # 직전 확인 메시지에서 이미 정리했으므로 다음 질문 앞에 문구를 붙이지 않는다
 
     def _skip(self, st: dict, emit: _Emitter) -> None:
         gap = self._current_gap(st)
