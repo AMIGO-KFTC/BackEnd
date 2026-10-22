@@ -4,11 +4,12 @@ r"""시연용 계정과 인수인계 관계를 실제 DB(data/app.db 또는 AMIG
     .venv\Scripts\python.exe scripts\seed_accounts.py --clean    # + 시드 계정의 빈 인수인계(자료·문서 없음)를 지운다
 
 계정(아이디 / 비밀번호)
-  IT아미고팀  팀장 김미고   amigoteamjang / amigoteamjang1234   (관리자)
-              계장 김민준   demo / demo1234                     (시연용)
-              계장 최환     hwan / hwan1234
-  AI개발팀    팀장 최고미   aiteamjang / aiteamjang1234         (관리자)
-              계장 임윤희   yunhui / yunhui1234
+                                                           사번
+  IT아미고팀  팀장 김미고   amigoteamjang / amigoteamjang1234   1100101 (관리자)
+              계장 김민준   demo / demo1234                     1111111 (시연용)
+              계장 최환     hwan / hwan1234                     1251023
+  AI개발팀    팀장 최고미   aiteamjang / aiteamjang1234         1100202 (관리자)
+              계장 임윤희   yunhui / yunhui1234                 1231207
 인수인계(인계자 → 인수자)
   계장 김민준 → 계장 임윤희   AMIGO 인수인계 서비스 운영 · 협력사 유지보수 계약 관리
   계장 임윤희 → 계장 최환     AI 모델 평가 파이프라인 관리 · 임베딩 서버 운영
@@ -32,13 +33,13 @@ from app.security import hash_password  # noqa: E402
 
 DIVISION = "디지털본부"  # 부서(본부)는 요청에 없어 임시로 둔다. 프로필 수정에서 바꿀 수 있다.
 
-# (아이디, 비밀번호, 이름, 부서, 팀, 직위, 역할: admin = 관리자(users.is_admin) / member)
+# (아이디, 비밀번호, 이름, 부서, 팀, 직위, 역할: admin = 관리자(users.is_admin) / member, 사번: 아이디와는 별개)
 ACCOUNTS = [
-    ("amigoteamjang", "amigoteamjang1234", "김미고", DIVISION, "IT아미고팀", "팀장", "admin"),
-    ("demo", "demo1234", "김민준", DIVISION, "IT아미고팀", "계장", "member"),
-    ("hwan", "hwan1234", "최환", DIVISION, "IT아미고팀", "계장", "member"),
-    ("aiteamjang", "aiteamjang1234", "최고미", DIVISION, "AI개발팀", "팀장", "admin"),
-    ("yunhui", "yunhui1234", "임윤희", DIVISION, "AI개발팀", "계장", "member"),
+    ("amigoteamjang", "amigoteamjang1234", "김미고", DIVISION, "IT아미고팀", "팀장", "admin", "1100101"),
+    ("demo", "demo1234", "김민준", DIVISION, "IT아미고팀", "계장", "member", "1111111"),
+    ("hwan", "hwan1234", "최환", DIVISION, "IT아미고팀", "계장", "member", "1251023"),
+    ("aiteamjang", "aiteamjang1234", "최고미", DIVISION, "AI개발팀", "팀장", "admin", "1100202"),
+    ("yunhui", "yunhui1234", "임윤희", DIVISION, "AI개발팀", "계장", "member", "1231207"),
 ]
 
 # (인계자 아이디, 단위업무명, 업무 설명, 인수자 아이디, 인계 예정일)
@@ -57,7 +58,7 @@ HANDOVERS = [
 
 def upsert_accounts(db: Session) -> dict[str, User]:
     users: dict[str, User] = {}
-    for login_id, password, name, department, team, position, role in ACCOUNTS:
+    for login_id, password, name, department, team, position, role, employee_no in ACCOUNTS:
         user = db.scalar(select(User).where(User.login_id == login_id))
         if user is None:
             user = User(login_id=login_id, password_hash=hash_password(password), name=name)
@@ -68,6 +69,7 @@ def upsert_accounts(db: Session) -> dict[str, User]:
             user.name = name
             print(f"계정 갱신  {login_id:14} {name}")
         user.is_admin = role == "admin"  # 관리자 권한(users.is_admin): 팀장
+        user.employee_no = employee_no
         profile = user.profile or UserProfile(user_id=user.id)
         profile.department, profile.team, profile.position = department, team, position
         user.profile = profile

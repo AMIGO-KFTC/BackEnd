@@ -51,7 +51,7 @@ def test_marks_responses_as_mock(mock_client, client):
 
 def test_demo_account_has_tasks_in_each_state(mock_client):
     login_demo(mock_client)
-    assert mock_client.get("/api/profile").json()["profile"] == {"department": "디지털전략부", "position": "과장", "team": "웹서비스팀", "name": "김민수"}
+    assert mock_client.get("/api/profile").json()["profile"] == {"department": "디지털전략부", "position": "과장", "team": "웹서비스팀", "name": "김민수", "employee_no": ""}
     tasks = mock_client.get("/api/unit-tasks").json()["tasks"]
     assert [t["name"] for t in tasks] == ["기관 홈페이지 운영", "웹 접근성 관리", "유지보수 계약 관리"]
 

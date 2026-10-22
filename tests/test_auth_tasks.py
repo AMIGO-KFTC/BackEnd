@@ -80,8 +80,9 @@ def test_profile_save_and_validation(client):
 
     res = client.put("/api/profile", json={**PROFILE, "name": "김민수 "})
     assert res.status_code == 200
-    assert res.json() == {"success": True, "message": "프로필이 저장되었습니다.", "profile": PROFILE}
-    assert client.get("/api/profile").json()["profile"] == PROFILE
+    # 사번(employee_no)은 로그인 아이디와 별개 항목이라, 보내지 않으면 빈 값으로 내려온다
+    assert res.json() == {"success": True, "message": "프로필이 저장되었습니다.", "profile": {**PROFILE, "employee_no": ""}}
+    assert client.get("/api/profile").json()["profile"] == {**PROFILE, "employee_no": ""}
 
     updated = client.put("/api/profile", json={**PROFILE, "position": "차장", "name": "김민준"}).json()
     assert updated["profile"]["position"] == "차장"

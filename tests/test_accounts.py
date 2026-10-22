@@ -41,7 +41,7 @@ def test_mypage_view_and_edit(client):
     # 보낸 항목만 바뀐다 · 단위업무 인수인계서의 인계자 정보에도 반영된다
     res = client.patch("/api/me", json={"name": "김민수2", "position": "차장", "email": "ms@amigo.example"}).json()
     assert res["user"]["name"] == "김민수2" and res["user"]["email"] == "ms@amigo.example"
-    assert res["user"]["profile"] == {"department": "디지털전략부", "position": "차장", "team": "웹서비스팀", "name": "김민수2"}
+    assert res["user"]["profile"] == {"department": "디지털전략부", "position": "차장", "team": "웹서비스팀", "name": "김민수2", "employee_no": ""}
     assert res["stats"]["unit_tasks"] == 1
     session = client.get(f"/api/sessions/{task['session_id']}").json()
     assert session["owner_name"] == "김민수2" and session["position"] == "차장"
