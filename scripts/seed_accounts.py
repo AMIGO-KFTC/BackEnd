@@ -5,7 +5,7 @@ r"""시연용 계정과 인수인계 관계를 실제 DB(data/app.db 또는 AMIG
 
 계정(아이디 / 비밀번호)
   IT아미고팀  팀장 김미고   amigoteamjang / amigoteamjang1234   (관리자)
-              계장 김민준   demo / demo1234                     (시연용)
+              계장 김민준   1111111 / demo1234                  (시연용, 아이디 = 사번)
               계장 최환     hwan / hwan1234
   AI개발팀    팀장 최고미   aiteamjang / aiteamjang1234         (관리자)
               계장 임윤희   yunhui / yunhui1234
@@ -35,7 +35,7 @@ DIVISION = "디지털본부"  # 부서(본부)는 요청에 없어 임시로 둔
 # (아이디, 비밀번호, 이름, 부서, 팀, 직위, 역할: admin = 관리자(users.is_admin) / member)
 ACCOUNTS = [
     ("amigoteamjang", "amigoteamjang1234", "김미고", DIVISION, "IT아미고팀", "팀장", "admin"),
-    ("demo", "demo1234", "김민준", DIVISION, "IT아미고팀", "계장", "member"),
+    ("1111111", "demo1234", "김민준", DIVISION, "IT아미고팀", "계장", "member"),
     ("hwan", "hwan1234", "최환", DIVISION, "IT아미고팀", "계장", "member"),
     ("aiteamjang", "aiteamjang1234", "최고미", DIVISION, "AI개발팀", "팀장", "admin"),
     ("yunhui", "yunhui1234", "임윤희", DIVISION, "AI개발팀", "계장", "member"),
@@ -44,8 +44,8 @@ ACCOUNTS = [
 # (인계자 아이디, 단위업무명, 업무 설명, 인수자 아이디, 인계 예정일)
 HANDOVERS = [
     # 계장 김민준 → 계장 임윤희
-    ("demo", "AMIGO 인수인계 서비스 운영", "서비스 배포·장애 대응, 모니터링 알림 관리, 월간 운영 보고서 작성", "yunhui", "2026-11-14"),
-    ("demo", "협력사 유지보수 계약 관리", "(주)한빛웹솔루션 유지보수 계약 검수·대금 지급, 분기 실적 보고", "yunhui", "2026-11-14"),
+    ("1111111", "AMIGO 인수인계 서비스 운영", "서비스 배포·장애 대응, 모니터링 알림 관리, 월간 운영 보고서 작성", "yunhui", "2026-11-14"),
+    ("1111111", "협력사 유지보수 계약 관리", "(주)한빛웹솔루션 유지보수 계약 검수·대금 지급, 분기 실적 보고", "yunhui", "2026-11-14"),
     # 계장 임윤희 → 계장 최환
     ("yunhui", "AI 모델 평가 파이프라인 관리", "평가 데이터셋 관리, 주간 품질 리포트, 모델 교체 전 회귀 검증", "hwan", "2026-11-21"),
     ("yunhui", "임베딩 서버 운영", "임베딩 API 서버 배포·용량 관리, 장애 대응 연락망 유지", "hwan", "2026-11-21"),
