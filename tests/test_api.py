@@ -54,7 +54,7 @@ def test_full_flow_upload_analyze_chat_generate_download(client, sample_dir):
     client.post(f"/api/sessions/{sid}/chat", json={"text": "네"})
     wait_for(client, sid, lambda s: s["status"] == "waiting")
     new = _messages(client, sid, cursor)
-    assert new[-1]["kind"] == "question" and new[-1]["content"].startswith("확인했습니다.")
+    assert new[-1]["kind"] == "question" and not new[-1]["content"].startswith(("확인했습니다.", "**["))  # 이전 답변 정리·장 이름 대괄호 없이 질문만
 
     assert client.post(f"/api/sessions/{sid}/skip").status_code == 202
     wait_for(client, sid, lambda s: s["status"] == "waiting")
@@ -224,4 +224,4 @@ def test_leave_mode_session_is_light_and_config_lists_modes(client, sample_dir):
     wait_for(client, sid, idle)
     assert client.post(f"/api/sessions/{sid}/analyze").status_code == 202
     state = wait_for(client, sid, lambda s: s["status"] == "waiting")
-    assert set(state["session"]["slots"]) == {"leave_units", "leave_tasks", "leave_contacts", "systems"}
+    assert set(state["session"]["slots"]) == {"leave_units", "leave_tasks", "systems"}

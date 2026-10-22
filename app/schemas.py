@@ -602,6 +602,9 @@ class ReceivedHandoverOut(BaseModel):
     status: str
     document_version: int
     file_count: int
+    document_origin: str = Field(default="", description="최신 인수인계서의 출처: ai(AI 작성) | user(직접 수정) | restore(복원), 문서가 없으면 빈 값")
+    document_origin_label: str = ""
+    document_updated_at: datetime | None = Field(default=None, description="최신 인수인계서가 만들어진(수정된) 시각")
     created_at: datetime
     updated_at: datetime
 
@@ -857,7 +860,13 @@ class TransferSummary(BaseModel):
     title: str
     task_name: str
     mode: str
-    document_version: int = Field(description="보낸 인수인계서 버전")
+    document_version: int = Field(description="지금 보이는 인수인계서 버전(인계자가 보낸 뒤 직접 고쳤으면 고친 최신 버전)")
+    sent_version: int = Field(default=0, description="보낸 시점의 버전")
+    updated_since_sent: bool = Field(default=False, description="보낸 뒤 인계자가 문서를 고쳤는지(최신 버전이 보낸 버전과 다름)")
+    updated_since_read: bool = Field(default=False, description="인수자가 열어 본 뒤 새 버전이 생겼는지")
+    document_origin: str = Field(default="ai", description="최신 버전의 출처: ai(AI 작성) | user(직접 수정) | restore(이전 버전 복원)")
+    document_origin_label: str = "AI 작성"
+    document_updated_at: datetime | None = Field(default=None, description="최신 버전이 만들어진 시각")
     sender: RecipientCandidate = Field(description="보낸 사람(인계자)")
     recipient: RecipientCandidate = Field(description="받는 사람(인수자)")
     handover_date: str
@@ -868,7 +877,7 @@ class TransferSummary(BaseModel):
 
 
 class TransferDetail(TransferSummary):
-    markdown: str = Field(description="보낸 시점의 인수인계서 전체(Markdown). 인계자가 나중에 고쳐도 바뀌지 않는다")
+    markdown: str = Field(description="인수인계서 전체(Markdown). 기본은 최신 버전(직접 수정 포함), ?sent=true 면 보낸 시점 문서. 인계자가 업무를 지웠으면 보낸 시점 문서")
     session_id: str | None = Field(description="원래 인계 세션(인계자가 지웠으면 null)")
 
 

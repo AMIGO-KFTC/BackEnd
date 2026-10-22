@@ -2,6 +2,8 @@
 
 인계자가 단위업무·세션을 만들 때 인수자의 로그인 아이디(successor_login_id)를 적어 두면, 그 계정의 '받은 인수인계' 목록에 나타난다.
 인수자는 그 세션을 읽기만(상태·문서·PDF 내려받기·근거) 할 수 있다(routers/deps.py 의 guard_session_owner).
+문서는 언제나 인계자의 최신 버전이다. 인계자가 '직접 수정하기'로 고쳐 저장하면(PUT /document) 받은 인수인계에도 고친 문서가 뜨고,
+목록의 document_origin(ai | user | restore)·document_updated_at 으로 직접 고친 버전인지와 고친 시각을 알 수 있다.
 """
 
 from __future__ import annotations
@@ -10,9 +12,10 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import HandoverSession, User, UserProfile
+from ..models import DocumentVersion, HandoverSession, User, UserProfile
 from ..schemas import MemberOut, MembersResult, ReceivedHandoverOut, ReceivedHandoversResult
-from .deps import current_user, get_db
+from ..services.documents import ORIGIN_LABELS
+from .deps import as_utc, current_user, get_db
 
 router = APIRouter(prefix="/api", tags=["handovers"])
 
@@ -40,7 +43,21 @@ def owner_login_ids(db: Session, rows: list[HandoverSession]) -> dict[str, str]:
     return {f"user:{uid}": login_id for uid, login_id in pairs}
 
 
-def received_out(row: HandoverSession, owner_login_id: str = "") -> ReceivedHandoverOut:
+def latest_versions(db: Session, session_ids: list[str]) -> dict[str, DocumentVersion]:
+    """세션별 마지막 인수인계서 버전(현재 문서)."""
+    if not session_ids:
+        return {}
+    last = (
+        select(DocumentVersion.session_id, func.max(DocumentVersion.version).label("v"))
+        .where(DocumentVersion.session_id.in_(session_ids))
+        .group_by(DocumentVersion.session_id)
+        .subquery()
+    )
+    rows = db.scalars(select(DocumentVersion).join(last, (DocumentVersion.session_id == last.c.session_id) & (DocumentVersion.version == last.c.v)))
+    return {v.session_id: v for v in rows}
+
+
+def received_out(row: HandoverSession, owner_login_id: str = "", latest: DocumentVersion | None = None) -> ReceivedHandoverOut:
     return ReceivedHandoverOut(
         id=row.id,
         title=row.title,
@@ -55,6 +72,9 @@ def received_out(row: HandoverSession, owner_login_id: str = "") -> ReceivedHand
         status=row.status,
         document_version=row.document_version,
         file_count=sum(1 for s in row.sources if s.kind == "file"),
+        document_origin=latest.origin if latest is not None and row.document_md else "",
+        document_origin_label=ORIGIN_LABELS.get(latest.origin, "") if latest is not None and row.document_md else "",
+        document_updated_at=as_utc(latest.created_at) if latest is not None and row.document_md else None,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -76,4 +96,5 @@ def list_received(user: User = Depends(current_user), db: Session = Depends(get_
         .order_by(HandoverSession.updated_at.desc())
     ).all()
     owners = owner_login_ids(db, rows)
-    return ReceivedHandoversResult(handovers=[received_out(r, owners.get(r.user_id, "")) for r in rows])
+    latest = latest_versions(db, [r.id for r in rows])
+    return ReceivedHandoversResult(handovers=[received_out(r, owners.get(r.user_id, ""), latest.get(r.id)) for r in rows])

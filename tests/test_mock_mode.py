@@ -87,7 +87,7 @@ def test_full_flow_with_virtual_ai(mock_client):
     labels = {c["label"] for slot in session["slots"].values() for item in slot["items"] for c in item["citations"]}
     assert labels and all(label.split(" ")[0] in ("업무정의서.pdf", "운영매뉴얼.hwpx") for label in labels)  # 실제로 읽힌 자료만 근거로
     assert "업무정의서.pdf p.1" in labels
-    assert p["questions"]["total"] == 6 and "정보보호팀" in p["current_question"]["content"]
+    assert p["questions"]["total"] == 8 and "정보보호팀" in p["current_question"]["content"]
 
     # 답변 → 확인 요청 → 고쳐 말하기 → 다시 확인 → 네
     mock_client.post(f"/api/sessions/{sid}/chat", json={"text": "내선 2345 입니다"})
@@ -98,7 +98,7 @@ def test_full_flow_with_virtual_ai(mock_client):
     assert p["current_question"]["content"].startswith("수정한 내용으로")
     mock_client.post(f"/api/sessions/{sid}/chat", json={"text": "네, 맞아요"})
     p = wait_progress(mock_client, sid, lambda p: p["next_action"] == "answer_question" and p["current_question"]["number"] == 2)
-    assert p["current_question"]["content"].startswith("확인했습니다.") and p["questions"]["answered"] == 1
+    assert not p["current_question"]["content"].startswith(("확인했습니다.", "**[")) and p["questions"]["answered"] == 1  # 질문만 나온다
 
     # 건너뛰기 → 다음 질문, 지금 문서 생성 → 문서 v1
     assert mock_client.post(f"/api/sessions/{sid}/skip").status_code == 202
@@ -144,7 +144,7 @@ def test_leave_mode_uses_light_template(mock_client):
         if s["status"] == "waiting":
             break
         time.sleep(0.05)
-    assert set(s["slots"]) == {"leave_units", "leave_tasks", "leave_contacts", "systems"}  # 장기휴가 양식
+    assert set(s["slots"]) == {"leave_units", "leave_tasks", "systems"}  # 장기휴가 양식
 
 
 def test_progress_is_visible_with_delay(tmp_path):

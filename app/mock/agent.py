@@ -16,6 +16,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from amigo_agent import AgentStateError
+from amigo_agent.dept_info import clean_dept_info, has_info, pick_questions
 from amigo_agent.edits import apply_gantt_edit
 from amigo_agent.render import render_document
 from amigo_agent.state import evaluate_coverage, item_label
@@ -69,7 +70,7 @@ class MockAgent:
                 emit.progress(f"'{spec.title}' 분석 완료 · {COVERAGE_LABELS[slot['coverage']]}", slot=spec.key, status="done")
             keys = {s.key for s in active}
             st["gaps"], st["gap_meta"] = [], {}
-            for i, g in enumerate(scenario.GAPS):
+            for i, g in enumerate(self._planned_gaps(st["profile"])):
                 if g["slot"] not in keys:
                     continue
                 gap_id = f"gap-{i + 1:02d}"
@@ -151,6 +152,19 @@ class MockAgent:
             st["document"] = render_document(profile=st["profile"], slots=st["slots"], gaps=st["gaps"], sources=st["sources"], version=st["document_version"])
             return {"markdown": st["document"], "version": st["document_version"]}
 
+    def update_profile(self, thread_id: str, patch: dict[str, Any]) -> bool:
+        with self._lock(thread_id):
+            st = self._states.get(thread_id)
+            if not st:
+                return False
+            changed = False
+            for key, value in patch.items():
+                if value is None:
+                    changed |= st["profile"].pop(key, None) is not None
+                elif st["profile"].get(key) != value:
+                    st["profile"][key], changed = value, True
+            return changed
+
     def delete(self, thread_id: str) -> None:
         with self._guard:
             self._states.pop(thread_id, None)
@@ -191,7 +205,7 @@ class MockAgent:
             if st["stage"] != "qna":
                 st["stage"] = "qna"
                 emit.stage("qna")
-            content = (ack + "\n\n" if ack else "") + f"**[{SLOT_BY_KEY[gap['slot']].title}]** {gap['question']}"
+            content = (ack + "\n\n" if ack else "") + gap["question"]  # 장 이름은 meta.slot 으로 화면 태그에 표시되므로 본문에 붙이지 않는다
             emit.say("question", content, gap_id=gap["id"], slot=gap["slot"], number=st["question_count"],
                      remaining=len(open_gaps) - 1, quick_replies=QUICK_REPLIES_QNA, allow_files=True)
             st["waiting"] = True
@@ -204,7 +218,7 @@ class MockAgent:
         gap = self._current_gap(st)
         if gap is None or gap["status"] != "asked":
             return self._next(st, emit)
-        emit.say("question", f"**[{SLOT_BY_KEY[gap['slot']].title}]** {gap['question']}", gap_id=gap["id"], slot=gap["slot"],
+        emit.say("question", gap["question"], gap_id=gap["id"], slot=gap["slot"],
                  number=st["question_count"], remaining=sum(1 for g in st["gaps"] if g["status"] == "open"),
                  quick_replies=QUICK_REPLIES_QNA, allow_files=True)
         st["waiting"] = True
@@ -239,7 +253,7 @@ class MockAgent:
         if item is not None:
             item["confirmed"] = True
         st["pending"] = {}
-        self._next(st, emit, ack="확인했습니다.")
+        self._next(st, emit)  # 직전 확인 메시지에서 이미 정리했으므로 다음 질문 앞에 문구를 붙이지 않는다
 
     def _skip(self, st: dict, emit: _Emitter) -> None:
         gap = self._current_gap(st)
@@ -328,6 +342,18 @@ class MockAgent:
         closing = (f"부족한 부분을 채우기 위해 **한 번에 하나씩** 질문드릴게요(최대 {min(remaining, MAX_QUESTIONS)}개). "
                    "모르는 내용은 '건너뛰기', 관련 파일이 있으면 언제든 첨부해 주세요.") if remaining else "자료만으로 필요한 정보가 충족되었어요. 바로 인수인계서를 작성할게요."
         return f"{head}\n\n" + "\n".join(lines) + f"\n\n{closing}"
+
+    @staticmethod
+    def _planned_gaps(profile: dict[str, Any]) -> list[dict[str, Any]]:
+        """시나리오 질문 목록. 소속 부서의 특이사항이 있으면 '부서별 추가 자료' 일반 질문 대신 부서가 관리하는 대상(라이센스 업체·가맹점·중요 문서)의 관리 방식을 묻는다(최대 3개)."""
+        info = clean_dept_info(profile.get("dept_notes"))
+        if not has_info(info):
+            return list(scenario.GAPS)
+        kept = [g for g in scenario.GAPS if g["slot"] != "dept_notes"]
+        for target in pick_questions(info, 3):
+            kept.append({"slot": "dept_notes", "item": None, "field": "detail", "priority": 2, "new_title": target["name"],
+                         "description": f"{target['label']} '{target['name']}'의 관리 내용이 자료에서 확인되지 않음", "question": target["question"]})
+        return kept
 
     # ------------------------------------------------------------------ 도우미
     def _item_id(self, st: dict, gap: dict) -> str:
