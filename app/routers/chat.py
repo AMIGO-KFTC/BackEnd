@@ -19,7 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import HandoverSession, Message
-from ..schemas import Accepted, ChatIn, SessionDetail
+from ..schemas import Accepted, ChatIn, ReopenIn, SessionDetail
 from ..services.container import Services
 from ..services.runner import SessionBusy
 from .conversations import _current_question
@@ -142,6 +142,29 @@ def skip(
     message = _user_message(db, session_id, "skip", "이 질문은 건너뛸게요.", meta)
     kb, agent = services.kb(session_id), services.agent
     _submit(services, session_id, "skip", lambda h: agent.skip(session_id, kb, on_event=h))
+    return Accepted(message=message_out(message))
+
+
+@router.post("/reopen", response_model=Accepted, status_code=status.HTTP_202_ACCEPTED, summary="이전 질문으로 돌아가 다시 답하기")
+def reopen(session_id: str, body: ReopenIn, db: Session = Depends(get_db), services: Services = Depends(get_services)):
+    """이미 답했거나 건너뛴 질문을 다시 묻는다. 새로 답하면 앞의 답을 그 내용으로 고친다. 질의응답 중에만 된다.
+
+    잘못된 요청(없는 질문·아직 답하지 않은 질문)은 에이전트에 넘기지 않고 여기서 거절한다(세션이 오류 상태가 되지 않게).
+    """
+    row = load_session(db, session_id)
+    _ensure_started(row)
+    _ensure_idle(services, row)
+    _ensure_waiting(services, row)
+    if row.stage != "qna":
+        raise HTTPException(status_code=409, detail="질의응답 중에만 이전 질문으로 돌아갈 수 있어요.")
+    gap = next((g for g in json.loads(row.gaps_json or "[]") if g.get("id") == body.gap_id), None)
+    if gap is None:
+        raise HTTPException(status_code=404, detail="돌아갈 질문을 찾을 수 없어요.")
+    if gap.get("status") not in ("answered", "resolved", "skipped"):
+        raise HTTPException(status_code=409, detail="아직 답하지 않은 질문이라 돌아갈 수 없어요.")
+    message = _user_message(db, session_id, "command", "이전 질문으로 돌아가서 답을 고칠게요.", {"gap_id": body.gap_id, "slot": gap.get("slot", "")})
+    kb, agent = services.kb(session_id), services.agent
+    _submit(services, session_id, "reopen", lambda h: agent.reopen_question(session_id, body.gap_id, kb, on_event=h), "이전 질문으로 돌아가는 중이에요.")
     return Accepted(message=message_out(message))
 
 
