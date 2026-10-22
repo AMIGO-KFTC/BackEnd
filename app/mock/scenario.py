@@ -143,6 +143,7 @@ ITEMS: dict[str, list[dict]] = {
                 "schedule": "매월 5영업일 이내(부재 기간 중 11월 지급 건 1회)",
                 "method": "업체 실적보고서 접수 → 장애·요청 처리 건 대조 → 검수 확인서 결재 → 재무팀 지급 요청",
                 "key_points": "장애 대응 시간이 계약 기준(1시간)을 넘은 건은 지체상금을 반영해야 합니다.",
+                "emergency": "",
                 "pending": "11월 실적보고서 접수 후 검수 필요",
                 "references": "계약서 별첨 SLA 표",
             },
@@ -155,16 +156,11 @@ ITEMS: dict[str, list[dict]] = {
                 "schedule": "매주 월요일 오전",
                 "method": "게시판별 미승인 게시물 확인 → 게시 기간 지난 공지 내리기 → 결과를 팀 메신저에 공유",
                 "key_points": "부서장 승인이 없는 게시물은 게시할 수 없습니다.",
+                "emergency": "게시 오류가 나면 (주)한빛웹솔루션 정다은 PM(02-555-0182)에게 문의하면 당일 조치됩니다.",
                 "pending": "",
                 "references": "홈페이지 운영 매뉴얼 v3.2",
             },
         },
-    ],
-    # [장기휴가] B 안의 '비상 대응 및 협조사항'(세부 업무 카드 안에 담당자별 표로 들어간다)
-    "leave_contacts": [
-        {"doc": "manual", "fields": {"party": "(주)한빛웹솔루션 정다은 PM", "task": "주간 게시물 현황 점검", "discussed": "게시 오류가 나면 02-555-0182 로 문의하면 당일 조치", "upcoming": "휴가 중 서버 점검 일정 확인"}},
-        {"doc": "mail", "fields": {"party": "재무팀 박지훈 차장", "task": "유지보수 실적 검수 및 대금 지급 요청", "discussed": "지급 요청이 늦어지면 내선 2345 로 마감 연장 협의", "upcoming": ""}},
-        {"doc": "manual", "fields": {"party": "IT지원팀 최영호 과장", "task": "유지보수 실적 검수 및 대금 지급 요청", "discussed": "", "upcoming": "계정 권한 오류 시 대응 절차"}},
     ],
 }
 
@@ -173,9 +169,9 @@ GAPS: list[dict] = [
     {"slot": "stakeholders", "item": "정보보호팀 이수진 대리", "field": "discussed", "priority": 1,
      "description": "'정보보호팀 이수진 대리'와 협의한 내용 정보 없음",
      "question": "자료에 있는 '정보보호팀 이수진 대리'와는 어떤 내용을 협의하셨나요? 협의한 결과도 알려 주세요."},
-    {"slot": "leave_contacts", "item": "IT지원팀 최영호 과장", "field": "discussed", "priority": 1,
-     "description": "'IT지원팀 최영호 과장'의 대응·협조 내용 정보 없음",
-     "question": "휴가 중 '유지보수 실적 검수 및 대금 지급 요청'에서 문제가 생기면 'IT지원팀 최영호 과장'에게 어떤 내용을 문의하거나 협조받으면 되나요?"},
+    {"slot": "leave_tasks", "item": "유지보수 실적 검수 및 대금 지급 요청", "field": "emergency", "priority": 1,
+     "description": "'유지보수 실적 검수 및 대금 지급 요청'의 비상 대응 및 협조사항 정보 없음",
+     "question": "휴가 중 '유지보수 실적 검수 및 대금 지급 요청'에서 문제가 생기면 어떻게 대응하고 누구에게 문의하면 되나요?"},
     {"slot": "regular", "item": "유지보수 실적 검수 및 대금 지급 요청", "field": "key_points", "priority": 1,
      "description": "'유지보수 실적 검수 및 대금 지급 요청'의 중점관리사항 정보 없음",
      "question": "'유지보수 실적 검수 및 대금 지급 요청'을 할 때 놓치면 문제가 되는 점이 있나요? 검수에서 꼭 확인하시는 항목을 알려 주세요."},
