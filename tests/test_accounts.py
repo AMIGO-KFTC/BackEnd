@@ -123,13 +123,13 @@ def make_admin(client, login_id: str) -> None:
 def test_admin_role_and_admin_api(tmp_path):
     settings = Settings(data_dir=tmp_path / "data", workers=2)
     with TestClient(create_app(settings)) as c:
-        signup(c, {"login_id": "boss", "password": "boss-password", "name": "최관리"})
+        signup(c, {"login_id": "boss", "password": "boss-password-1", "name": "최관리"})
         signup(c, {**ACCOUNT})
         # 가입만 해서는 관리자가 아니다
-        assert login(c, "boss", "boss-password").json()["user"]["is_admin"] is False
+        assert login(c, "boss", "boss-password-1").json()["user"]["is_admin"] is False
         assert c.get("/api/admin/users").status_code == 403
         make_admin(c, "boss")
-        res = login(c, "boss", "boss-password").json()
+        res = login(c, "boss", "boss-password-1").json()
         assert res["user"]["is_admin"] is True
         users = c.get("/api/admin/users").json()
         assert users["total"] == 2 and [(u["login_id"], u["is_admin"]) for u in users["users"]] == [("boss", True), ("minsu.kim", False)]
@@ -167,8 +167,8 @@ def test_old_database_gets_new_columns(tmp_path):
         with c.app.state.services.db() as db:
             row = db.execute(text("SELECT is_admin, email FROM users WHERE login_id = 'old'")).one()
         assert row == (0, "")  # 새 컬럼은 기본값(관리자 아님 · 이메일 없음)으로 채워진다
-        c.post("/api/auth/signup", json={"login_id": "new.user", "password": "new-password", "name": "새사람"})
-        assert login(c, "new.user", "new-password").json()["user"]["is_admin"] is False
+        c.post("/api/auth/signup", json={"login_id": "new.user", "password": "new-password-9", "name": "새사람"})
+        assert login(c, "new.user", "new-password-9").json()["user"]["is_admin"] is False
 
 
 def test_mock_mode_has_admin_account(tmp_path):

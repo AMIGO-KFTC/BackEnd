@@ -108,7 +108,8 @@ def test_docx_merges_cells_and_colors_bars():
     xml = _table_xml(to_docx(HTML_DOC))
     assert 'w:gridSpan w:val="2"' in xml and 'w:gridSpan w:val="3"' in xml  # 가로 병합(월 막대, 내용 칸)
     assert 'w:vMerge w:val="restart"' in xml  # 세로 병합(협업관계 라벨)
-    assert 'w:fill="7055C8"' in xml  # 막대 색
+    # 막대는 칸 전체를 칠하지 않고 칸 가운데의 얇은 줄(문단 위쪽 테두리)로 그린다
+    assert 'w:top w:val="single" w:sz="36" w:space="0" w:color="7055C8"' in xml and 'w:fill="7055C8"' not in xml
     for text in ("주요 협업관계 및 협의사항", "재무팀 박지훈 차장", "이사회 승인 후 계약", "상시 &amp; 점검"):  # XML 에서는 & 가 &amp; 로 저장된다
         assert text in xml
 

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 LOGIN_ID_PATTERN = r"^[A-Za-z0-9._@-]{3,50}$"
+PASSWORD_RULE = re.compile(r"^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z\d]).{9,20}$")  # 회원가입 비밀번호: 9~20자, 영문·숫자·특수문자 모두 포함
 EMAIL_PATTERN = r"^([^@\s]{1,64}@[^@\s]+\.[^@\s]{2,})?$"  # 비우거나(선택) 형식만 확인
 EMPLOYEE_NO_PATTERN = r"^[A-Za-z0-9]{0,20}$"  # 사번: 비우거나 영문·숫자 20자 이하
 
@@ -33,10 +35,17 @@ class Result(BaseModel):
 
 class SignupIn(_Stripped):
     login_id: str = Field(pattern=LOGIN_ID_PATTERN, description="아이디(영문·숫자·._@- 3~50자)")
-    password: str = Field(min_length=8, max_length=128, description="비밀번호(8자 이상)")
+    password: str = Field(max_length=128, description="비밀번호(9~20자, 영문·숫자·특수문자 모두 포함)")
     name: str = Field(min_length=1, max_length=50, description="이름")
     email: str = Field(default="", max_length=254, pattern=EMAIL_PATTERN, description="이메일(선택). 비밀번호 찾기에 쓴다")
     employee_no: str = Field(default="", pattern=EMPLOYEE_NO_PATTERN, description="사번(선택). 로그인 아이디와는 별개 값")
+
+    @field_validator("password")
+    @classmethod
+    def _password_rule(cls, value: str) -> str:
+        if not PASSWORD_RULE.fullmatch(value):
+            raise ValueError("비밀번호는 9~20자의 영문, 숫자, 특수문자를 모두 포함해야 합니다.")
+        return value
 
 
 class LoginIn(_Stripped):
@@ -226,14 +235,22 @@ class SessionCreate(BaseModel):
     successor: str = Field(default="", max_length=100, description="인수자")
     successor_login_id: str = Field(default="", max_length=50, description="인수자의 로그인 아이디(이 시스템 계정이면). 그 계정의 '받은 인수인계'에 나타난다")
     handover_date: str = Field(default="", max_length=20, description="인계 예정일(YYYY-MM-DD)")
+    leave_start: str = Field(default="", pattern=DATE_PATTERN, description="장기휴가 시작일(YYYY-MM-DD). 장기휴가 유형에서 쓴다")
+    leave_end: str = Field(default="", pattern=DATE_PATTERN, description="장기휴가 종료일(YYYY-MM-DD). 시작일보다 앞설 수 없다")
     title: str = Field(default="", max_length=200)
     mode: Literal["reassignment", "leave"] = Field(default="reassignment", description="인수인계 유형: reassignment=인사발령, leave=장기휴가")
     task_name: str = Field(default="", max_length=200, description="단위 업무명(업무 단위별로 인수인계서 1건)")
 
-    @field_validator("owner_name", "organization", "position", "duties", "successor", "successor_login_id", "handover_date", "title", "task_name")
+    @field_validator("owner_name", "organization", "position", "duties", "successor", "successor_login_id", "handover_date", "leave_start", "leave_end", "title", "task_name")
     @classmethod
     def _strip(cls, value: str) -> str:
         return value.strip()
+
+    @model_validator(mode="after")
+    def _leave_period(self) -> "SessionCreate":
+        if self.leave_start and self.leave_end and self.leave_end < self.leave_start:
+            raise ValueError("휴가 종료일은 시작일보다 앞설 수 없습니다.")
+        return self
 
 
 class SourceOut(BaseModel):
@@ -282,6 +299,8 @@ class SessionSummary(BaseModel):
     successor: str = ""
     successor_login_id: str = ""
     handover_date: str = ""
+    leave_start: str = ""
+    leave_end: str = ""
     stage: str
     status: str
     document_version: int

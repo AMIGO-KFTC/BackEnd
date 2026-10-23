@@ -225,3 +225,31 @@ def test_leave_mode_session_is_light_and_config_lists_modes(client, sample_dir):
     assert client.post(f"/api/sessions/{sid}/analyze").status_code == 202
     state = wait_for(client, sid, lambda s: s["status"] == "waiting")
     assert set(state["session"]["slots"]) == {"leave_units", "leave_tasks", "systems"}
+
+
+def test_leave_period_is_saved_and_shown_in_the_prompt_profile(client):
+    body = {**PROFILE, "mode": "leave", "leave_start": "2026-11-02", "leave_end": "2026-11-27"}
+    created = client.post("/api/sessions", json=body)
+    assert created.status_code == 201
+    assert (created.json()["leave_start"], created.json()["leave_end"]) == ("2026-11-02", "2026-11-27")
+    assert client.get(f"/api/sessions/{created.json()['id']}").json()["leave_end"] == "2026-11-27"
+
+    from amigo_agent.template import leave_period
+
+    assert leave_period({"mode": "leave", "leave_start": "2026-11-02", "leave_end": "2026-11-27"}) == "2026-11-02 ~ 2026-11-27"
+    assert leave_period({"mode": "reassignment", "leave_start": "2026-11-02", "leave_end": "2026-11-27"}) == ""  # 인사발령에는 쓰지 않는다
+
+    backwards = client.post("/api/sessions", json={**body, "leave_start": "2026-11-27", "leave_end": "2026-11-02"})
+    assert backwards.status_code == 422
+    assert client.post("/api/sessions", json={**body, "leave_start": "11/02"}).status_code == 422
+
+
+def test_png_is_accepted_and_explains_when_claude_is_not_connected(client, settings):
+    """스크린샷(PNG)은 올릴 수 있는 형식이다. 테스트 환경은 오프라인 엔진이라 글자를 못 읽고, 이유를 안내한다."""
+    assert {".png", ".jpg", ".jpeg"} <= set(client.get("/api/config").json()["allowed_extensions"])
+    sid = client.post("/api/sessions", json=PROFILE).json()["id"]
+    res = client.post(f"/api/sessions/{sid}/upload", files=[("files", ("화면.png", b"\x89PNG\r\n\x1a\n", "image/png"))])
+    assert res.status_code == 201
+    wait_for(client, sid, idle)
+    source = client.get(f"/api/sessions/{sid}/sources").json()[0]
+    assert source["name"] == "화면.png" and source["status"] == "failed" and "읽을 수 없어요" in source["error"]

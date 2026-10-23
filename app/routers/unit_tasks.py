@@ -175,7 +175,7 @@ def delete_task(task_id: str, user: User = Depends(current_user), db: Session = 
 async def upload_task_files(
     task_id: str,
     response: Response,
-    files: list[UploadFile] = File(..., description="PDF, HWPX, HWP, DOCX, PPTX, XLSX, EML, 소스코드, ZIP 등"),
+    files: list[UploadFile] = File(..., description="PDF, HWPX, HWP, DOCX, PPTX, XLSX, EML, PNG·JPG(스크린샷), 소스코드, ZIP 등"),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
     services: Services = Depends(get_services),

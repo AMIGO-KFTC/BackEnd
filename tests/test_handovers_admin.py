@@ -2,7 +2,7 @@
 
 from sqlalchemy import select
 
-from app.models import User
+from app.models import HandoverSession, User
 
 PASSWORD = "correct-horse-1"
 TEAM_IT = {"department": "디지털본부", "team": "IT아미고팀"}
@@ -68,11 +68,25 @@ def test_members_list_requires_login_and_profile(client):
 def test_received_handovers_and_read_only_access(client):
     session_id = setup_team(client)
 
+    # 인수자로 지정만 해서는 보이지 않는다. 인계자가 완성 문서에서 받는 사람을 골라 전송해야 보인다.
+    login(client, "yunhui")
+    assert client.get("/api/handovers/received").json()["handovers"] == []
+    assert client.get(f"/api/sessions/{session_id}/state").status_code == 404
+    with client.app.state.services.db() as db:
+        row = db.get(HandoverSession, session_id)
+        row.document_md, row.document_version = "# 인수인계서\n\n## 개요\n내용", 1
+        db.commit()
+    login(client, "demo")
+    members = client.get("/api/members").json()["members"]
+    for login_id in ("yunhui", "hwan"):  # 여러 명에게 보낼 수 있다
+        res = client.post(f"/api/sessions/{session_id}/transfers", json={"recipient_id": next(m["id"] for m in members if m["login_id"] == login_id)})
+        assert res.status_code == 201, res.text
+
     login(client, "yunhui")
     received = client.get("/api/handovers/received").json()["handovers"]
     assert len(received) == 1 and received[0]["id"] == session_id
     assert received[0]["owner_name"] == "김민준" and received[0]["owner_login_id"] == "demo" and received[0]["task_name"] == "AMIGO 서비스 운영"
-    assert received[0]["stage"] == "setup" and received[0]["document_version"] == 0
+    assert received[0]["stage"] == "setup" and received[0]["document_version"] == 1
 
     # 인수자는 읽기만: 상태·문서 조회는 되고, 대화·삭제는 남의 세션처럼 404
     state = client.get(f"/api/sessions/{session_id}/state")
@@ -80,8 +94,11 @@ def test_received_handovers_and_read_only_access(client):
     assert client.post(f"/api/sessions/{session_id}/chat", json={"text": "안녕"}).status_code == 404
     assert client.delete(f"/api/sessions/{session_id}").status_code == 404
 
-    # 인수자가 아닌 같은 팀 동료는 읽지도 못한다
+    # 전송받지 못한 사람은 읽지도 못한다(같은 팀 동료여도). 함께 전송받은 사람은 읽을 수 있다.
     login(client, "hwan")
+    assert [h["id"] for h in client.get("/api/handovers/received").json()["handovers"]] == [session_id]
+    assert client.get(f"/api/sessions/{session_id}/state").status_code == 200
+    login(client, "aiteamjang")
     assert client.get("/api/handovers/received").json()["handovers"] == []
     assert client.get(f"/api/sessions/{session_id}/state").status_code == 404
 

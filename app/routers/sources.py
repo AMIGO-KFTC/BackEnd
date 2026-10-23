@@ -60,7 +60,7 @@ async def store_uploads(db: Session, services: Services, row: HandoverSession, f
 @router.post("/upload", response_model=list[SourceOut], status_code=status.HTTP_201_CREATED, summary="파일 업로드(여러 개)")
 async def upload_files(
     session_id: str,
-    files: list[UploadFile] = File(..., description="PDF, HWPX, HWP, DOCX, PPTX, XLSX, EML, 소스코드, ZIP 등"),
+    files: list[UploadFile] = File(..., description="PDF, HWPX, HWP, DOCX, PPTX, XLSX, EML, PNG·JPG(스크린샷), 소스코드, ZIP 등"),
     db: Session = Depends(get_db),
     services: Services = Depends(get_services),
 ):

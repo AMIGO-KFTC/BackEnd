@@ -11,7 +11,9 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from amigo_agent import HandoverAgent
-from amigo_rag import KnowledgeBase, RAGSettings, supported_extensions
+from amigo_agent.config import AgentConfig
+from amigo_agent.vision import make_image_reader
+from amigo_rag import KnowledgeBase, RAGSettings, set_image_reader, supported_extensions
 from sqlalchemy import create_engine, event, func, inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -55,6 +57,8 @@ class Services:
         backfill_versions(self.SessionLocal)
         self.reset_notifier = ResetNotifier(settings.password_reset_url, log_token=settings.expose_reset_token)
 
+        # 스크린샷(PNG·JPG)은 Claude 가 연결돼 있을 때만 글자를 읽는다. 아니면 올리면 '읽을 수 없다'는 안내가 뜬다.
+        set_image_reader(make_image_reader() if not settings.mock_mode and AgentConfig().resolved_mode() == "claude" else None)
         self.allowed_extensions = supported_extensions()
         self.mail = MockMailProvider()  # 메일 조회 API(지금은 가상 메일함). 실제 메일 시스템을 붙이면 여기만 바꾼다
         self.storage = FileStorage(settings.upload_dir, settings.max_upload_mb * 1024 * 1024, self.allowed_extensions)

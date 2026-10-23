@@ -24,7 +24,7 @@ def test_signup_login_logout(client):
     assert res.status_code == 201 and body["success"] is True and body["user"]["name"] == "김민수"
     assert "password" not in str(body) and "hash" not in str(body)
     dup = client.post("/api/auth/signup", json={**ACCOUNT, "login_id": "MINSU.KIM"})  # 대소문자만 다른 아이디도 중복
-    assert dup.status_code == 409 and dup.json() == {"success": False, "message": "이미 사용 중인 아이디입니다.", "detail": "이미 사용 중인 아이디입니다."}
+    assert dup.status_code == 409 and dup.json() == {"success": False, "message": "이미 가입된 사번입니다.", "detail": "이미 가입된 사번입니다."}
 
     short = client.post("/api/auth/signup", json={**ACCOUNT, "login_id": "other", "password": "short"})
     assert short.status_code == 422 and short.json()["success"] is False and "비밀번호" in short.json()["message"]
@@ -33,7 +33,7 @@ def test_signup_login_logout(client):
     wrong = client.post("/api/auth/login", json={"login_id": "minsu.kim", "password": "wrong-password"})
     unknown = client.post("/api/auth/login", json={"login_id": "nobody", "password": "wrong-password"})
     assert wrong.status_code == unknown.status_code == 401
-    assert wrong.json()["message"] == unknown.json()["message"] == "아이디 또는 비밀번호가 올바르지 않습니다."
+    assert wrong.json()["message"] == unknown.json()["message"] == "사번 또는 비밀번호가 올바르지 않습니다."
     assert client.get("/api/auth/me").status_code == 401
 
     # 성공: 이름과 세션(쿠키 + 토큰)
@@ -185,7 +185,7 @@ def test_other_users_cannot_access_tasks_or_sessions(client, sample_dir):
     assert client.get(f"/api/sessions/{sid}/state", headers={"X-User-Id": "user:1"}).status_code == 401
     assert client.get("/api/sessions", headers={"X-User-Id": "user:1"}).json() == []
 
-    signup_and_login(client, {"login_id": "other", "password": "other-password", "name": "이서연"})
+    signup_and_login(client, {"login_id": "other", "password": "other-password-1", "name": "이서연"})
     assert client.get(f"/api/unit-tasks/{task['id']}").status_code == 404
     assert client.post(f"/api/unit-tasks/{task['id']}/files", files=[("files", ("a.txt", b"x", "text/plain"))]).status_code == 404
     assert client.get(f"/api/sessions/{sid}").status_code == 404
@@ -213,3 +213,10 @@ def test_upload_does_not_start_ai_when_budget_is_used_up(client, sample_dir):
     progress = client.get(f"/api/conversations/{sid}").json()["progress"]
     assert progress["next_action"] == "start_analysis"
     assert client.post(f"/api/sessions/{sid}/analyze").status_code == 429
+
+
+def test_signup_password_needs_letters_digits_and_special_characters(client):
+    for weak in ("onlyletters", "12345678901", "abcdefgh!", "abcdefg1234", "Ab1!", "Abcdefghij1!Abcdefghij1!"):
+        res = client.post("/api/auth/signup", json={**ACCOUNT, "login_id": "weak", "password": weak})
+        assert res.status_code == 422, weak
+    assert client.post("/api/auth/signup", json={**ACCOUNT, "login_id": "strong", "password": "Abcdef12!"}).status_code == 201

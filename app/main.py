@@ -149,7 +149,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 FIELD_LABELS = {
-    "login_id": "아이디",
+    "login_id": "사번",
     "password": "비밀번호",
     "current_password": "지금 비밀번호",
     "new_password": "새 비밀번호",
