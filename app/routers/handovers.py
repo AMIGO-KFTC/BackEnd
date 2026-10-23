@@ -1,7 +1,8 @@
 """구성원 목록(인수자 선택용)과 받은 인수인계(내가 인수자로 지정된 인수인계).
 
-인계자가 단위업무·세션을 만들 때 인수자의 로그인 아이디(successor_login_id)를 적어 두면, 그 계정의 '받은 인수인계' 목록에 나타난다.
-인수자는 그 세션을 읽기만(상태·문서·PDF 내려받기·근거) 할 수 있다(routers/deps.py 의 guard_session_owner).
+인계자가 단위업무·세션을 만들 때 적어 둔 인수자(successor_login_id)는 '예정'일 뿐이다. 인계자가 완성 문서 화면에서 받는 사람을 골라 전송해야
+(POST /api/sessions/{id}/transfers) 그 계정의 '받은 인수인계' 목록에 나타난다(여러 명에게 보낼 수 있다).
+받은 사람은 그 세션을 읽기만(상태·문서·PDF 내려받기·근거) 할 수 있다(routers/deps.py 의 guard_session_owner).
 문서는 언제나 인계자의 최신 버전이다. 인계자가 '직접 수정하기'로 고쳐 저장하면(PUT /document) 받은 인수인계에도 고친 문서가 뜨고,
 목록의 document_origin(ai | user | restore)·document_updated_at 으로 직접 고친 버전인지와 고친 시각을 알 수 있다.
 """
@@ -12,7 +13,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import DocumentVersion, HandoverSession, User, UserProfile
+from ..models import DocumentVersion, HandoverSession, HandoverTransfer, User, UserProfile
 from ..schemas import MemberOut, MembersResult, ReceivedHandoverOut, ReceivedHandoversResult
 from ..services.documents import ORIGIN_LABELS
 from .deps import as_utc, current_user, get_db
@@ -88,11 +89,11 @@ def list_members(user: User = Depends(current_user), db: Session = Depends(get_d
     return MembersResult(members=[member_out(u) for u in rows])
 
 
-@router.get("/handovers/received", response_model=ReceivedHandoversResult, summary="받은 인수인계: 내가 인수자로 지정된 인수인계(최근 순)")
+@router.get("/handovers/received", response_model=ReceivedHandoversResult, summary="받은 인수인계: 인계자가 나에게 전송한 인수인계(최근 순)")
 def list_received(user: User = Depends(current_user), db: Session = Depends(get_db)):
     rows = db.scalars(
         select(HandoverSession)
-        .where(func.lower(HandoverSession.successor_login_id) == user.login_id.lower())
+        .where(HandoverSession.id.in_(select(HandoverTransfer.session_id).where(HandoverTransfer.recipient_id == user.id)))
         .order_by(HandoverSession.updated_at.desc())
     ).all()
     owners = owner_login_ids(db, rows)

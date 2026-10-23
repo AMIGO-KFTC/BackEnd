@@ -192,6 +192,10 @@ def _plain(runs: list[Run]) -> str:
     return "".join(r.text for r in runs)
 
 
+# 일정표(월별 막대)의 막대 두께(pt). 칸 높이를 다 채우면 뚱뚱해 보여서 가운데에 얇게 그린다.
+BAR_THICKNESS_PT = 4.5
+
+
 def _display_width(text: str) -> int:
     return sum(2 if "\u1100" <= ch <= "\uffdc" else 1 for ch in text)
 
@@ -202,7 +206,8 @@ KR_FONT = "맑은 고딕"
 
 def to_docx(markdown: str, *, title: str = "업무 인수인계서") -> bytes:
     from docx import Document
-    from docx.enum.table import WD_TABLE_ALIGNMENT
+    from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
+    from docx.enum.text import WD_LINE_SPACING
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
     from docx.shared import Cm, Pt, RGBColor
@@ -253,6 +258,36 @@ def to_docx(markdown: str, *, title: str = "업무 인수인계서") -> bytes:
         shd.set(qn("w:fill"), color)
         tc_pr.append(shd)
 
+    def thin_bar(cell, color: str) -> None:
+        """칸을 칠하는 대신 칸 가운데에 얇은 막대(위쪽 문단 테두리)를 그린다. 이웃 칸과 이어지도록 좌우 여백은 0."""
+        tc_pr = cell._tc.get_or_add_tcPr()
+        margins = OxmlElement("w:tcMar")
+        for side in ("left", "right"):
+            edge = OxmlElement(f"w:{side}")
+            edge.set(qn("w:w"), "0")
+            edge.set(qn("w:type"), "dxa")
+            margins.append(edge)
+        tc_pr.insert_element_before(margins, "w:textDirection", "w:tcFitText", "w:vAlign", "w:hideMark", "w:headers", "w:cellIns", "w:cellDel", "w:cellMerge", "w:tcPrChange")
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        paragraph = cell.paragraphs[0]
+        fmt = paragraph.paragraph_format
+        fmt.space_before = fmt.space_after = Pt(0)
+        fmt.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+        fmt.line_spacing = Pt(1)
+        border = OxmlElement("w:pBdr")
+        top = OxmlElement("w:top")
+        top.set(qn("w:val"), "single")
+        top.set(qn("w:sz"), str(round(BAR_THICKNESS_PT * 8)))  # 1/8 pt 단위
+        top.set(qn("w:space"), "0")
+        top.set(qn("w:color"), color)
+        border.append(top)
+        paragraph._p.get_or_add_pPr().insert_element_before(
+            border, "w:shd", "w:tabs", "w:suppressAutoHyphens", "w:kinsoku", "w:wordWrap", "w:overflowPunct", "w:topLinePunct", "w:autoSpaceDE",
+            "w:autoSpaceDN", "w:bidi", "w:adjustRightInd", "w:snapToGrid", "w:spacing", "w:ind", "w:contextualSpacing", "w:mirrorIndents",
+            "w:suppressOverlap", "w:jc", "w:textDirection", "w:textAlignment", "w:textboxTightWrap", "w:outlineLvl", "w:divId", "w:cnfStyle",
+            "w:rPr", "w:sectPr", "w:pPrChange",
+        )
+
     for block in markdown_blocks(markdown):
         if block.kind == "heading":
             style = "Title" if block.level == 1 else f"Heading {min(block.level - 1, 3)}"
@@ -289,6 +324,9 @@ def to_docx(markdown: str, *, title: str = "업무 인수인계서") -> bytes:
                     if block.is_header(r_index, c_index):
                         runs = [Run(x.text, True, x.italic) for x in runs]
                         shade(cell, "E8EEF7")
+                    if (r_index, c_index) in block.fills and not _plain(runs).strip():
+                        thin_bar(cell, block.fills[(r_index, c_index)])  # 일정 막대(글자 없는 색칠 칸)
+                        continue
                     if (r_index, c_index) in block.fills:
                         shade(cell, block.fills[(r_index, c_index)])
                     add_runs(cell.paragraphs[0], runs, size=9)
@@ -364,7 +402,22 @@ def to_pdf(markdown: str, *, title: str = "업무 인수인계서") -> bytes:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import mm
-    from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import Flowable, HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    class ThinBar(Flowable):
+        """칸 폭만큼 이어지는 얇은 막대(칸 가운데에 놓인다)."""
+
+        def __init__(self, color) -> None:
+            super().__init__()
+            self.color, self.width = color, 0
+
+        def wrap(self, avail_width, avail_height):
+            self.width = avail_width
+            return avail_width, BAR_THICKNESS_PT
+
+        def draw(self) -> None:
+            self.canv.setFillColor(self.color)
+            self.canv.rect(0, 0, self.width, BAR_THICKNESS_PT, stroke=0, fill=1)
 
     regular, bold = _pdf_fonts()
     navy = colors.HexColor("#1F2A44")
@@ -402,9 +455,15 @@ def to_pdf(markdown: str, *, title: str = "업무 인수인계서") -> bytes:
             total = sum(weights) or 1
             widths = [page_width * w / total for w in weights]
             data = []
+            bars = {key for key in block.fills if not _plain(block.rows[key[0]][key[1]] if key[1] < len(block.rows[key[0]]) else []).strip()}
             for r_index, row in enumerate(block.rows):
                 data.append(
-                    [Paragraph(_markup(row[c]) if c < len(row) else "", head_cell if block.is_header(r_index, c) else cell) for c in range(cols)]
+                    [
+                        ThinBar(colors.HexColor("#" + block.fills[(r_index, c)]))
+                        if (r_index, c) in bars
+                        else Paragraph(_markup(row[c]) if c < len(row) else "", head_cell if block.is_header(r_index, c) else cell)
+                        for c in range(cols)
+                    ]
                 )
             table = Table(data, colWidths=widths, repeatRows=1)
             commands = [
@@ -421,7 +480,14 @@ def to_pdf(markdown: str, *, title: str = "업무 인수인계서") -> bytes:
                 commands.append(("SPAN", (c, r), (c + cs - 1, r + rs - 1)))
             for (r, c), color in block.fills.items():
                 rs, cs = block.spans.get((r, c), (1, 1))
-                commands.append(("BACKGROUND", (c, r), (c + cs - 1, r + rs - 1), colors.HexColor("#" + color)))
+                if (r, c) in bars:  # 얇은 막대: 이웃 칸과 이어지게 좌우 여백을 없애고 세로 가운데에 둔다
+                    commands += [
+                        ("LEFTPADDING", (c, r), (c + cs - 1, r + rs - 1), 0),
+                        ("RIGHTPADDING", (c, r), (c + cs - 1, r + rs - 1), 0),
+                        ("VALIGN", (c, r), (c + cs - 1, r + rs - 1), "MIDDLE"),
+                    ]
+                else:
+                    commands.append(("BACKGROUND", (c, r), (c + cs - 1, r + rs - 1), colors.HexColor("#" + color)))
             table.setStyle(TableStyle(commands))
             story += [table, Spacer(1, 6)]
         elif block.kind == "rule":

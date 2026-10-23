@@ -33,6 +33,8 @@ def new_handover_session(
     successor: str = "",
     successor_login_id: str = "",
     handover_date: str = "",
+    leave_start: str = "",
+    leave_end: str = "",
     title: str = "",
     mode: str = "reassignment",
     task_name: str = "",
@@ -50,6 +52,8 @@ def new_handover_session(
         successor=successor,
         successor_login_id=successor_login_id.lower(),
         handover_date=handover_date,
+        leave_start=leave_start,
+        leave_end=leave_end,
         mode=mode,
         task_name=task_name,
     )

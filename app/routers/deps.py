@@ -9,7 +9,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import AuthSession, HandoverSession, Message, User, utcnow
+from ..models import AuthSession, HandoverSession, HandoverTransfer, Message, User, utcnow
 from ..schemas import MessageOut, ProfileOut, Progress, SessionDetail, SessionSummary, SourceOut, Usage, UsageTotal, UserOut
 from ..security import token_hash
 from ..services.container import Services
@@ -71,7 +71,7 @@ def get_user_id(x_user_id: str | None = Header(default=None), user: User | None 
 def guard_session_owner(request: Request, db: Session = Depends(get_db), user: User | None = Depends(optional_user)) -> None:
     """/api/sessions/{session_id}/... 공통 검사: 로그인 계정이 만든 세션은 그 계정만 쓸 수 있다.
 
-    인수자로 지정된 계정(successor_login_id)은 읽기(GET: 상태·문서·내려받기·근거)만 할 수 있다.
+    인계자가 '전송'한 계정(받는 사람으로 고른 계정)은 읽기(GET: 상태·문서·내려받기·근거)만 할 수 있다. 인수자로 지정만 한 계정은 아직 못 본다.
     """
     session_id = request.path_params.get("session_id")
     row = db.get(HandoverSession, session_id) if session_id else None
@@ -81,13 +81,14 @@ def guard_session_owner(request: Request, db: Session = Depends(get_db), user: U
         raise HTTPException(status_code=401, detail=LOGIN_REQUIRED, headers={"WWW-Authenticate": "Bearer"})
     if user.owner_key == row.user_id:
         return
-    if request.method == "GET" and (is_successor(user, row) or is_team_admin(db, user, row)):
+    if request.method == "GET" and (is_successor(db, user, row) or is_team_admin(db, user, row)):
         return
     raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
 
 
-def is_successor(user: User, row: HandoverSession) -> bool:
-    return bool(row.successor_login_id) and row.successor_login_id.lower() == user.login_id.lower()
+def is_successor(db: Session, user: User, row: HandoverSession) -> bool:
+    """인계자가 이 인수인계서를 이 계정에게 전송했는지(여러 명에게 보낼 수 있다)."""
+    return db.scalar(select(HandoverTransfer.id).where(HandoverTransfer.session_id == row.id, HandoverTransfer.recipient_id == user.id).limit(1)) is not None
 
 
 def is_team_admin(db: Session, user: User, row: HandoverSession) -> bool:
@@ -135,6 +136,8 @@ def summary(row: HandoverSession) -> SessionSummary:
         successor=row.successor,
         successor_login_id=row.successor_login_id or "",
         handover_date=row.handover_date,
+        leave_start=row.leave_start or "",
+        leave_end=row.leave_end or "",
         stage=row.stage,
         status=row.status,
         document_version=row.document_version,

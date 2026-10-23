@@ -127,7 +127,7 @@ def test_conversations_are_listed_by_recent_activity_and_private(client, sample_
 
     client.cookies.clear()
     assert client.get("/api/conversations").status_code == 401
-    other = login(client, {"login_id": "other", "password": "other-pass", "name": "이서연"})
+    other = login(client, {"login_id": "other", "password": "other-pass-12", "name": "이서연"})
     assert client.get("/api/conversations", headers=other).json()["conversations"] == []
     for path in ("", "/messages"):
         assert client.get(f"/api/conversations/{tasks[0]['session_id']}{path}", headers=other).status_code == 404

@@ -137,8 +137,8 @@ def test_unit_task_flow_with_real_rag_and_agent(client, sample_dir):
 
     # 다른 계정은 근거·재적재에 접근할 수 없다
     client.cookies.clear()
-    client.post("/api/auth/signup", json={"login_id": "other", "password": "other-pass", "name": "이서연"})
-    client.post("/api/auth/login", json={"login_id": "other", "password": "other-pass"})
+    client.post("/api/auth/signup", json={"login_id": "other", "password": "other-pass-12", "name": "이서연"})
+    client.post("/api/auth/login", json={"login_id": "other", "password": "other-pass-12"})
     assert client.get(f"/api/sessions/{sid}/citations").status_code == 404
     assert client.post(f"/api/sessions/{sid}/reindex").status_code == 404
 

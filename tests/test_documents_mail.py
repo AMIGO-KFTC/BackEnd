@@ -221,8 +221,8 @@ def test_import_mails_into_session_and_rag_reads_them(client):
     assert client.post(f"/api/sessions/{sid}/mails", json={"message_ids": ["m-0002"]}).json()["skipped"]
 
     # 다른 계정은 남의 세션으로 메일을 가져오거나 관련도를 볼 수 없다
-    client.post("/api/auth/signup", json={"login_id": "other", "password": "other-password", "name": "이서연"})
-    client.post("/api/auth/login", json={"login_id": "other", "password": "other-password"})
+    client.post("/api/auth/signup", json={"login_id": "other", "password": "other-password-1", "name": "이서연"})
+    client.post("/api/auth/login", json={"login_id": "other", "password": "other-password-1"})
     assert client.post(f"/api/sessions/{sid}/mails", json={"message_ids": ["m-0001"]}).status_code == 404
     assert client.get(f"/api/mail/messages?session_id={sid}").status_code == 404
 

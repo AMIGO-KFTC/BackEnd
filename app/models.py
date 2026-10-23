@@ -134,6 +134,8 @@ class HandoverSession(Base):
     successor: Mapped[str] = mapped_column(String(100), default="")
     successor_login_id: Mapped[str] = mapped_column(String(50), default="")  # 인수자가 이 시스템 계정이면 그 아이디(받은 인수인계 목록에 쓴다)
     handover_date: Mapped[str] = mapped_column(String(20), default="")
+    leave_start: Mapped[str] = mapped_column(String(10), default="")  # 장기휴가 시작일(YYYY-MM-DD)
+    leave_end: Mapped[str] = mapped_column(String(10), default="")  # 장기휴가 종료일(YYYY-MM-DD)
     mode: Mapped[str] = mapped_column(String(20), default="reassignment")  # reassignment(인사발령) | leave(장기휴가)
     task_name: Mapped[str] = mapped_column(String(200), default="")  # 단위 업무명
 
@@ -180,6 +182,8 @@ class HandoverSession(Base):
             "duties": self.duties,
             "successor": self.successor,
             "handover_date": self.handover_date,
+            "leave_start": self.leave_start,
+            "leave_end": self.leave_end,
             "mode": self.mode or "reassignment",
             "task_name": self.task_name,
         }

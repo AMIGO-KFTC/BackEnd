@@ -20,6 +20,11 @@ from .transfers import transfer_counts
 router = APIRouter(prefix="/api/me", tags=["mypage"])
 
 
+def employee_no_locked(user: User, employee_no: str) -> bool:
+    """사번은 한 번 정해지면 누구도(본인 포함) 바꿀 수 없다. 같은 값을 다시 보내는 것만 허용한다."""
+    return employee_no != (user.employee_no or "")
+
+
 def employee_no_taken(db: Session, employee_no: str, exclude_user_id: int | None = None) -> bool:
     if not employee_no:
         return False
@@ -78,6 +83,8 @@ def update_me(body: MyInfoUpdate, user: User = Depends(current_user), db: Sessio
         user.email = email
     if "employee_no" in changes:
         employee_no = changes["employee_no"] or ""
+        if employee_no_locked(user, employee_no):
+            raise HTTPException(status_code=409, detail="사번은 바꿀 수 없습니다.")
         if employee_no_taken(db, employee_no, exclude_user_id=user.id):
             raise HTTPException(status_code=409, detail="이미 다른 계정이 쓰고 있는 사번입니다.")
         user.employee_no = employee_no
