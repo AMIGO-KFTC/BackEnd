@@ -117,22 +117,24 @@ class MockAgent:
         """이미 답했거나 건너뛴 질문으로 돌아가 다시 묻는다(질의응답에서만). 새 답은 앞의 답을 덮어쓴다."""
         with self._lock(thread_id):
             st, emit = self._ready(thread_id), _Emitter(on_event)
-            if st["stage"] != "qna":
-                raise AgentStateError("질의응답 중에만 이전 질문으로 돌아갈 수 있습니다.")
+            if st["stage"] not in ("qna", "review"):
+                raise AgentStateError("질의응답이나 문서 검토 중에만 질문으로 이동할 수 있습니다.")
             target = next((g for g in st["gaps"] if g["id"] == gap_id), None)
             if target is None:
                 raise AgentStateError("돌아갈 질문을 찾지 못했습니다.")
-            if target["status"] not in ("answered", "resolved", "skipped"):
-                raise AgentStateError("아직 답하지 않은 질문이라 돌아갈 수 없습니다.")
+            if target["status"] not in ("answered", "resolved", "skipped", "open") + (("asked",) if st["stage"] == "review" else ()):
+                raise AgentStateError("지금 묻고 있는 질문입니다.")
+            st["resume_review"] = gap_id if st["stage"] == "review" else ""  # 검토 중에 골랐으면 답한 뒤 문서를 다시 만든다
             st["waiting"] = False
             self._sleep()
             for g in st["gaps"]:
                 if g["status"] == "asked":
                     g["status"] = "open"  # 지금 묻던 질문은 이 질문 다음에 다시 묻는다
             target["status"] = "open"
+            st["force_gap"] = gap_id  # 고른 질문을 먼저 묻는다(목록 순서·번호는 그대로)
             st["pending"] = {}
             st["question_count"] = sum(1 for g in st["gaps"] if g["status"] in ("answered", "resolved", "skipped"))  # _next 가 +1 한다
-            self._next(st, emit, ack="이전 질문으로 돌아왔어요. 새로 답해 주시면 앞의 답을 그 내용으로 고칠게요.")
+            self._next(st, emit, ack="고르신 질문으로 이동했어요. 답해 주시면 그 내용으로 고칠게요.")
 
     def finish(self, thread_id: str, kb: Any, on_event: EventHandler = None) -> None:
         with self._lock(thread_id):
@@ -221,8 +223,12 @@ class MockAgent:
     # ------------------------------------------------------------------ 시나리오 진행
     def _next(self, st: dict, emit: _Emitter, ack: str = "") -> None:
         open_gaps = [g for g in st["gaps"] if g["status"] == "open"]
+        resume = st.get("resume_review")
+        if resume and not any(g["id"] == resume and g["status"] == "open" for g in st["gaps"]):
+            st["resume_review"] = ""  # 검토 중 고른 질문에 답했으면 바로 문서를 다시 만든다
+            open_gaps = []
         if open_gaps:  # 질문 수는 제한하지 않는다(남은 질문을 모두 묻는다)
-            gap = open_gaps[0]
+            gap = next((g for g in open_gaps if g["id"] == st.pop("force_gap", None)), open_gaps[0])
             gap["status"] = "asked"
             st["current_gap_id"] = gap["id"]
             st["question_count"] += 1

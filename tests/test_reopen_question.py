@@ -21,7 +21,7 @@ def test_reopen_returns_to_the_earlier_question_and_overwrites_the_answer(mock_c
 
     again = wait_progress(mock_client, sid, lambda p: p["next_action"] == "answer_question" and p["current_question"]["gap_id"] == first["gap_id"])["current_question"]
     assert again["message_id"] > second["message_id"] and again["number"] == 1
-    assert "이전 질문으로 돌아왔어요" in again["content"]
+    assert "고르신 질문으로 이동했어요" in again["content"]
 
     # 새로 답하면 앞의 답을 대신하고, 확인하면 원래 이어지던 질문이 다시 나온다
     mock_client.post(f"/api/sessions/{sid}/chat", json={"text": "정보보호팀 박지훈 과장, 내선 4455", "reply_to": again["message_id"]})
@@ -37,7 +37,7 @@ def test_reopen_rejects_questions_that_cannot_be_reopened(mock_client):
     first, second = answer_first_question(mock_client, sid)
 
     now_asking = mock_client.post(f"/api/sessions/{sid}/reopen", json={"gap_id": second["gap_id"]})  # 지금 묻고 있는 질문
-    assert now_asking.status_code == 409 and "아직 답하지 않은" in now_asking.json()["message"]
+    assert now_asking.status_code == 409 and "지금 묻고 있는" in now_asking.json()["message"]
     assert mock_client.post(f"/api/sessions/{sid}/reopen", json={"gap_id": "no-such-gap"}).status_code == 404
     assert mock_client.post(f"/api/sessions/{sid}/reopen", json={"gap_id": ""}).status_code == 422
     assert progress(mock_client, sid)["current_question"]["gap_id"] == second["gap_id"]  # 거절된 요청은 아무것도 바꾸지 않는다
