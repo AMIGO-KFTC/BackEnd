@@ -33,7 +33,7 @@ from ..schemas import (
 )
 from ..services.container import Services
 from ..services.documents import ORIGIN_LABELS, add_version, latest_version, merge_gantt_rows
-from ..services.exporters import to_docx, to_pdf
+from ..services.exporters import strip_citation_marks, to_docx, to_pdf
 from .deps import current_user, get_db, get_services, load_session, optional_user
 
 router = APIRouter(prefix="/api/sessions/{session_id}", tags=["documents"])
@@ -233,6 +233,7 @@ def download(
     if version is not None and version != row.document_version:
         markdown, number = _load_version(db, session_id, version).markdown, version
     title = f"{row.owner_name} 인수인계서"
+    markdown = strip_citation_marks(markdown)  # 근거 번호는 화면에서만 쓴다
     if format == "pdf":
         content = to_pdf(markdown, title=title)
     elif format == "docx":

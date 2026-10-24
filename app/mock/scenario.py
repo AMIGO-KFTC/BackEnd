@@ -20,10 +20,10 @@ DOC_HINTS = {
 ITEMS: dict[str, list[dict]] = {
     # [인사발령] A. 업무 단위 요약 + 일정 명세표
     "overview": [
-        {"doc": "definition", "fields": {"name": "{task_name}", "period": "상시(연중)", "note": "공지·보도자료 게시와 승인, 메뉴 구성 관리"}},
-        {"doc": "manual", "fields": {"name": "웹 접근성 품질 관리", "period": "분기별(1·4·7·10월) 점검, 11월 인증 갱신", "note": "자체 점검 후 업체에 수정 요청"}},
-        {"doc": "minutes", "fields": {"name": "홈페이지 리뉴얼 추진", "period": "2026.10 ~ 2027.01", "note": "11월 이사회 예산 승인 필요"}},
-        {"doc": "mail", "fields": {"name": "개인정보처리방침 개정 반영", "period": "2026.10", "note": "10월 15일까지 게시"}},
+        {"doc": "definition", "fields": {"name": "{task_name}", "period": "상시(연중)", "note": "정상 운영 중(공지·보도자료 게시와 메뉴 관리)"}},
+        {"doc": "manual", "fields": {"name": "웹 접근성 품질 관리", "period": "분기별(1·4·7·10월) 점검, 11월 인증 갱신", "note": "3분기 자체 점검 완료, 11월 인증 갱신 준비 중"}},
+        {"doc": "minutes", "fields": {"name": "홈페이지 리뉴얼 추진", "period": "2026.10 ~ 2027.01", "note": "RFP 초안 작성 중, 11월 이사회 예산 승인 대기"}},
+        {"doc": "mail", "fields": {"name": "개인정보처리방침 개정 반영", "period": "2026.10", "note": "개정안 검토 완료, 10월 15일 게시 예정"}},
     ],
     # [인사발령] C 안의 '주요 협업관계 및 협의사항'(프로젝트 카드 안에 들어간다). 협의 상대는 팀 또는 개인
     "stakeholders": [
@@ -44,7 +44,6 @@ ITEMS: dict[str, list[dict]] = {
                 "procedure": "업체 실적보고서 접수 → 장애·요청 처리 건 대조 → 검수 확인서 결재 → 재무팀 지급 요청",
                 "key_points": "",
                 "decisions": "2026년 7월부터 장애 대응 시간을 검수 항목에 넣었습니다(계약 기준 1시간).",
-                "collaboration": "재무팀과 지급 요청 마감을 매월 5영업일로 합의",
                 "future": "",
                 "references": "계약서 별첨 SLA 표를 먼저 읽어 두면 검수가 빠릅니다.",
             },
@@ -58,7 +57,6 @@ ITEMS: dict[str, list[dict]] = {
                 "procedure": "자동 점검 도구로 전 페이지 점검 → 오류 목록 정리 → 업체 수정 요청 → 재점검",
                 "key_points": "대체텍스트 누락과 키보드 접근 오류는 인증 심사에서 바로 감점됩니다.",
                 "decisions": "",
-                "collaboration": "",
                 "future": "자동 점검 결과를 매 분기 비교해 추이를 남겨 주세요.",
                 "references": "",
             },
@@ -72,7 +70,6 @@ ITEMS: dict[str, list[dict]] = {
                 "procedure": "총무팀에 법인카드 결제 요청 → 인증서 발급 → 업체에 서버 적용 요청 → 만료일 확인",
                 "key_points": "만료 2주 전까지 시작하지 않으면 방문자 브라우저에 보안 경고가 뜹니다.",
                 "decisions": "2025년부터 보안 정책에 따라 1년 단위로 갱신합니다.",
-                "collaboration": "총무팀과 결제 일정 협의",
                 "future": "",
                 "references": "",
             },
@@ -86,11 +83,16 @@ ITEMS: dict[str, list[dict]] = {
                 "procedure": "게시판별 미승인 게시물 확인 → 게시 기간 지난 공지 내리기 → 결과를 팀 메신저에 공유",
                 "key_points": "부서장 승인이 없는 게시물은 게시할 수 없습니다.",
                 "decisions": "공지 게시 기간 기본값을 30일로 정했습니다.",
-                "collaboration": "",
                 "future": "",
                 "references": "",
             },
         },
+    ],
+    # [인사발령] B 안의 '주요 협업관계'(정기업무 카드 안에 소속 | 이름 | 주요역할 | 연락처 | 비고(유의사항) 표로 들어간다)
+    "partners": [
+        {"doc": "mail", "fields": {"org": "재무팀", "name": "박지훈 차장", "role": "유지보수 대금 지급 처리", "phone": "내선 2345", "note": "지급 요청 마감은 매월 5영업일", "task": "유지보수 실적 검수 및 대금 지급 요청"}},
+        {"doc": "definition", "fields": {"org": "(주)한빛웹솔루션", "name": "정다은 PM", "role": "월간 실적보고서 제출", "phone": "02-555-0182", "note": "", "task": "유지보수 실적 검수 및 대금 지급 요청"}},
+        {"doc": "accounts", "fields": {"org": "총무팀", "name": "한소영 주임", "role": "인증서 비용 법인카드 결제", "phone": "내선 1120", "note": "결제 요청은 만료 3주 전까지", "task": "SSL 인증서 갱신"}},
     ],
     # [인사발령] C. 비정기 업무(프로젝트성)
     "irregular": [
@@ -128,23 +130,16 @@ ITEMS: dict[str, list[dict]] = {
     ],
     # [인사발령] E. 부서별 추가 자료
     "dept_notes": [],
-    # [장기휴가] A. 부재 중 처리할 단위 업무
-    "leave_units": [
-        {"doc": "definition", "fields": {"name": "{task_name}", "period": "휴가 기간 중 상시(주 1회 점검)", "note": ""}},
-        {"doc": "definition", "fields": {"name": "유지보수 대금 지급 요청", "period": "매월 5영업일 이내", "note": "재무팀 지급 마감 준수"}},
-    ],
-    # [장기휴가] B. 세부 업무
+    # [장기휴가] A. 세부 업무
     "leave_tasks": [
         {
             "doc": "definition",
             "fields": {
                 "name": "유지보수 실적 검수 및 대금 지급 요청",
-                "overview": "(주)한빛웹솔루션의 월간 유지보수 실적을 검수하고 재무팀에 대금 지급을 요청합니다.",
+                "task_type": "정기",
                 "schedule": "매월 5영업일 이내(부재 기간 중 11월 지급 건 1회)",
                 "method": "업체 실적보고서 접수 → 장애·요청 처리 건 대조 → 검수 확인서 결재 → 재무팀 지급 요청",
-                "key_points": "장애 대응 시간이 계약 기준(1시간)을 넘은 건은 지체상금을 반영해야 합니다.",
-                "emergency": "",
-                "pending": "11월 실적보고서 접수 후 검수 필요",
+                "cautions": "",
                 "references": "계약서 별첨 SLA 표",
             },
         },
@@ -152,15 +147,18 @@ ITEMS: dict[str, list[dict]] = {
             "doc": "manual",
             "fields": {
                 "name": "주간 게시물 현황 점검",
-                "overview": "게시판별 미승인 게시물과 게시 기간이 지난 공지를 정리합니다.",
+                "task_type": "정기",
                 "schedule": "매주 월요일 오전",
                 "method": "게시판별 미승인 게시물 확인 → 게시 기간 지난 공지 내리기 → 결과를 팀 메신저에 공유",
-                "key_points": "부서장 승인이 없는 게시물은 게시할 수 없습니다.",
-                "emergency": "게시 오류가 나면 (주)한빛웹솔루션 정다은 PM(02-555-0182)에게 문의하면 당일 조치됩니다.",
-                "pending": "",
+                "cautions": "부서장 승인이 없는 게시물은 게시하지 않음. 게시 오류가 나면 (주)한빛웹솔루션 정다은 PM에게 문의(당일 조치)",
                 "references": "홈페이지 운영 매뉴얼 v3.2",
             },
         },
+    ],
+    # [장기휴가] C. 주요 연락망
+    "contacts": [
+        {"doc": "mail", "fields": {"name": "정다은", "org": "(주)한빛웹솔루션", "dept": "유지보수사업팀", "position": "PM", "phone": "02-555-0182", "task": "게시 오류·장애 대응"}},
+        {"doc": "mail", "fields": {"name": "박지훈", "org": "사내", "dept": "재무팀", "position": "차장", "phone": "", "task": "유지보수 대금 지급"}},
     ],
 }
 
@@ -169,12 +167,18 @@ GAPS: list[dict] = [
     {"slot": "stakeholders", "item": "정보보호팀 이수진 대리", "field": "discussed", "priority": 1,
      "description": "'정보보호팀 이수진 대리'와 협의한 내용 정보 없음",
      "question": "자료에 있는 '정보보호팀 이수진 대리'와는 어떤 내용을 협의하셨나요? 협의한 결과도 알려 주세요."},
-    {"slot": "leave_tasks", "item": "유지보수 실적 검수 및 대금 지급 요청", "field": "emergency", "priority": 1,
-     "description": "'유지보수 실적 검수 및 대금 지급 요청'의 비상 대응 및 협조사항 정보 없음",
-     "question": "휴가 중 '유지보수 실적 검수 및 대금 지급 요청'에서 문제가 생기면 어떻게 대응하고 누구에게 문의하면 되나요?"},
+    {"slot": "leave_tasks", "item": "유지보수 실적 검수 및 대금 지급 요청", "field": "cautions", "priority": 1,
+     "description": "'유지보수 실적 검수 및 대금 지급 요청'의 주의사항 및 후속조치 정보 없음",
+     "question": "휴가 중 '유지보수 실적 검수 및 대금 지급 요청'에서 조심할 점이나 문제가 생기면 누구에게 먼저 연락하나요? 아직 끝나지 않은 일도 있다면 알려 주세요."},
+    {"slot": "contacts", "item": "박지훈", "field": "phone", "priority": 2,
+     "description": "'박지훈'의 연락처 정보 없음",
+     "question": "재무팀 박지훈 차장의 연락처(내선이나 전화번호)를 알려 주시겠어요?"},
     {"slot": "regular", "item": "유지보수 실적 검수 및 대금 지급 요청", "field": "key_points", "priority": 1,
-     "description": "'유지보수 실적 검수 및 대금 지급 요청'의 중점관리사항 정보 없음",
+     "description": "'유지보수 실적 검수 및 대금 지급 요청'의 중점 관리사항 정보 없음",
      "question": "'유지보수 실적 검수 및 대금 지급 요청'을 할 때 놓치면 문제가 되는 점이 있나요? 검수에서 꼭 확인하시는 항목을 알려 주세요."},
+    {"slot": "partners", "item": "정다은 PM", "field": "note", "priority": 2,
+     "description": "'정다은 PM'과 협업할 때의 유의사항 정보 없음",
+     "question": "(주)한빛웹솔루션 정다은 PM과 실적 검수를 할 때 주의할 점이 있나요?"},
     {"slot": "irregular", "item": "홈페이지 리뉴얼", "field": "future", "priority": 1,
      "description": "'홈페이지 리뉴얼'의 향후 추진과제 및 발전 방향 정보 없음",
      "question": "'홈페이지 리뉴얼' 사업에서 아직 결정되지 않았거나 인수자가 이어서 추진해야 할 일은 무엇인가요?"},

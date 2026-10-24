@@ -83,12 +83,12 @@ def record_ai_document(db: Session, row: HandoverSession, markdown: str, ai_vers
     return add_version(db, row, markdown, origin="ai", ai_version=ai_version, note=note)
 
 
-# 월별 일정표 한 행: <tr><td>이름</td>1~12월 칸<td>비고</td></tr> (amigo_agent.render._render_gantt)
+# 월별 일정표 한 행: <tr><td>이름</td>1~12월 칸<td>진행상황 요약</td></tr> (amigo_agent.render._render_gantt)
 _GANTT_ROW = re.compile(r'^(<tr><td>(.*?)</td>)((?:<td></td>|<td class="bar"[^>]*>&nbsp;</td>)+)(<td>[^<]*</td></tr>)\s*$', re.M)
 
 
 def merge_gantt_rows(edited: str, rendered: str) -> str:
-    """직접 고친 문서에 AI 가 다시 그린 월별 막대(1~12월 칸)만 옮긴다. 이름·비고 등 직접 고친 글은 그대로 둔다.
+    """직접 고친 문서에 AI 가 다시 그린 월별 막대(1~12월 칸)만 옮긴다. 이름·진행상황 요약 등 직접 고친 글은 그대로 둔다.
 
     같은 이름의 행은 나온 순서대로 짝짓는다. 직접 고친 문서에서 지웠거나 이름을 바꾼 행은 건드리지 않는다.
     """

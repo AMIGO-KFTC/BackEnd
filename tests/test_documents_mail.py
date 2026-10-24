@@ -13,6 +13,7 @@ from app.config import Settings
 from app.main import create_app
 from app.models import DocumentVersion, HandoverSession
 from app.services.documents import backfill_versions
+from app.services.exporters import strip_citation_marks
 
 
 @pytest.fixture()
@@ -85,9 +86,9 @@ def test_user_edits_are_saved_as_versions_and_reloaded(mock_client):
     assert mock_client.post(f"/api/sessions/{sid}/document/versions/3/restore").status_code == 400
 
     # 다운로드: 현재 문서 또는 특정 버전
-    assert mock_client.get(f"/api/sessions/{sid}/download?format=md").content.decode() == original
+    assert mock_client.get(f"/api/sessions/{sid}/download?format=md").content.decode() == strip_citation_marks(original)
     old = mock_client.get(f"/api/sessions/{sid}/download?format=md&version=2")
-    assert old.content.decode() == edited and "v2.md" in old.headers["content-disposition"]
+    assert old.content.decode() == strip_citation_marks(edited) and "v2.md" in old.headers["content-disposition"]
     assert mock_client.get(f"/api/sessions/{sid}/download?format=docx&version=2").status_code == 200
 
     # 채팅으로 고칠 점을 말하면 AI 가 새 초안을 쓰고, 번호는 이어서 매긴다

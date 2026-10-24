@@ -1,8 +1,8 @@
-"""근거 원문: 인수인계서의 근거 번호([1], [2] …)가 가리키는 자료 조각과, 올린 자료의 조각 원문 조회.
+"""근거 원문: 인수인계서 본문 글 뒤의 근거 번호([1], [2] …)가 가리키는 자료 조각(화면의 번호 팝업·'출처' 팝업)과, 올린 자료의 조각 원문 조회.
 
-RAG 의 KnowledgeBase.get_chunks() 를 쓴다. 근거 번호는 AI 렌더러(amigo_agent.render._Citations)와 같은 규칙으로
-매긴다: 양식의 장 순서 → 항목 순서 → 항목의 근거 순서, 같은 (출처 표기, 조각) 은 같은 번호.
-근거 열이 없는 장(`SlotSpec.evidence=False`)과 다른 장 안에 들어가는 장은 번호를 달지 않는다.
+본문에는 근거 자료 장(양식에 없는 장)이 없고, 화면이 이 API 로 번호별 출처를 띄운다(AI 렌더러 amigo_agent.render._Citations).
+RAG 의 KnowledgeBase.get_chunks() 를 쓴다. 번호는 양식의 장 순서 → 항목 순서 → 항목의 근거 순서로 매기고,
+같은 (출처 표기, 조각) 은 같은 번호다. 근거 열이 없는 장(`SlotSpec.evidence=False`)과 다른 장 안에 들어가는 장은 번호를 달지 않는다.
 """
 
 from __future__ import annotations

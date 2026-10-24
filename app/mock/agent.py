@@ -281,7 +281,7 @@ class MockAgent:
         if gap is not None and gap["status"] in ("asked", "answered", "open"):
             gap["status"] = "skipped"
         st["pending"] = {}
-        self._next(st, emit, ack="이 질문은 건너뛸게요. 문서의 '확인 필요 사항'에 남겨 둘게요.")
+        self._next(st, emit, ack="이 질문은 건너뛸게요. 화면 오른쪽 '확인 필요 사항'에 남겨 둘게요.")
 
     def _finish(self, st: dict, emit: _Emitter) -> None:
         emit.say("info", "지금까지 정리한 내용으로 인수인계서를 작성할게요.")

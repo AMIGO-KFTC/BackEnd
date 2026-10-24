@@ -41,12 +41,6 @@ def wait_question(client, sid, timeout=60.0) -> dict:
     raise AssertionError("timeout waiting for AI")
 
 
-def document_references(markdown: str) -> list[tuple[int, str]]:
-    """문서 '근거 자료' 절의 (번호, 출처 표기)."""
-    section = markdown.split("근거 자료", 1)[1].split("**등록된 원천 자료**", 1)[0]
-    return [(int(n), label.strip()) for n, label in re.findall(r"^(\d+)\. (.+?)(?: — \".*\")?$", section, re.M)]
-
-
 def test_unit_task_flow_with_real_rag_and_agent(client, sample_dir):
     login(client)
     created = client.post("/api/unit-tasks", json={"tasks": [
@@ -65,13 +59,13 @@ def test_unit_task_flow_with_real_rag_and_agent(client, sample_dir):
     upload(client, full["id"], sample_dir)
     assert wait_question(client, sid)["next_action"] == "answer_question"
     session = client.get(f"/api/sessions/{sid}").json()
-    assert set(session["slots"]) == {"overview", "stakeholders", "regular", "irregular", "systems", "dept_notes"}
+    assert set(session["slots"]) == {"overview", "regular", "partners", "irregular", "stakeholders", "systems", "dept_notes"}
     assert all(s["status"] == "ready" and s["chunk_count"] > 0 for s in session["sources"])
 
-    # 장기휴가: 3개 장만(부재 중 처리할 단위 업무·세부 업무·시스템 접근 권한)
+    # 장기휴가: 3개 장만(세부 업무·시스템 접근 권한·주요 연락망)
     upload(client, light["id"], sample_dir, SAMPLES[:2])
     wait_question(client, light["session_id"])
-    assert set(client.get(f"/api/sessions/{light['session_id']}").json()["slots"]) == {"leave_units", "leave_tasks", "systems"}
+    assert set(client.get(f"/api/sessions/{light['session_id']}").json()["slots"]) == {"leave_tasks", "systems", "contacts"}
 
     # 질의응답 → 문서
     # 질문 순서는 자료에 따라 달라지므로, 앞의 질문들에 차례로 답한다(협업관계처럼 근거 번호가 없는 장과 시스템·정기업무 장이 섞여 있다)
@@ -102,11 +96,13 @@ def test_unit_task_flow_with_real_rag_and_agent(client, sample_dir):
     assert row in client.get(f"/api/sessions/{sid}/document").json()["markdown"]
     markdown = client.get(f"/api/sessions/{sid}/document").json()["markdown"]
 
-    # 근거 원문: 번호와 출처가 문서의 '근거 자료' 목록과 같고, 자료 근거는 RAG 조각 원문을 돌려준다
+    # 근거 원문(화면의 '출처' 팝업): 문서 본문에는 근거 장·번호가 없고, 이 API 가 번호별 출처와 RAG 조각 원문을 돌려준다
     cites = client.get(f"/api/sessions/{sid}/citations").json()
     assert cites["document_version"] == 2
     numbered = [(c["number"], c["label"]) for c in cites["citations"]]
-    assert numbered == document_references(markdown)
+    assert [n for n, _ in numbered] == list(range(1, len(numbered) + 1)) and "근거 자료" not in markdown
+    marks = {int(n) for n in re.findall(r" \[(\d+)\]", markdown)}
+    assert marks and marks <= {n for n, _ in numbered}  # 본문 글 뒤의 번호는 모두 이 목록에 있다
     from_docs = [c for c in cites["citations"] if c["kind"] == "document"]
     answers = [c for c in cites["citations"] if c["kind"] == "answer"]
     assert from_docs and all(c["source_name"] in SAMPLES and c["chunk_id"] and len(c["text"]) > len(c["quote"]) for c in from_docs)
@@ -220,7 +216,7 @@ def test_citations_work_in_mock_mode(tmp_path):
         sid = done["session_id"]
         cites = c.get(f"/api/sessions/{sid}/citations").json()["citations"]
         markdown = c.get(f"/api/sessions/{sid}/document").json()["markdown"]
-        assert [(x["number"], x["label"]) for x in cites] == document_references(markdown)
+        assert [x["number"] for x in cites] == list(range(1, len(cites) + 1)) and "근거 자료" not in markdown
         docs = [x for x in cites if x["kind"] == "document"]
         assert docs and all(x["text"].startswith("(가상 응답") for x in docs)
         source = c.get(f"/api/unit-tasks/{done['id']}/files").json()[0]

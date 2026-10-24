@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 from html.parser import HTMLParser
 from dataclasses import dataclass, field
 from datetime import date
@@ -20,6 +21,13 @@ from xml.sax.saxutils import escape
 import mistune
 
 _MD = mistune.create_markdown(renderer=None, plugins=["table", "strikethrough"])
+
+# 본문 글 뒤의 근거 번호(' [1] [3]'). 화면에서는 번호에 마우스를 올리면 출처가 뜨지만, 내려받는 문서에는 출처 목록이 없으므로 뺀다.
+_CITATION_MARKS = re.compile(r"(?: \[\d+\])+")
+
+
+def strip_citation_marks(markdown: str) -> str:
+    return _CITATION_MARKS.sub("", markdown or "")
 
 
 # --------------------------------------------------------------------------- Markdown → 블록

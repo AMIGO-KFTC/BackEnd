@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from amigo_rag import detect_link_type
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from ..models import FileBlob, HandoverSession, Message, Source
@@ -92,6 +92,20 @@ def add_links(session_id: str, body: LinksIn, db: Session = Depends(get_db), ser
 @router.get("/sources", response_model=list[SourceOut], summary="등록 자료 목록")
 def list_sources(session_id: str, db: Session = Depends(get_db)):
     return [SourceOut.model_validate(s) for s in load_session(db, session_id).sources]
+
+
+@router.get("/sources/{source_id}/file", summary="올린 파일 원본 내려받기(완성 문서 화면의 '출처' 목록)")
+def download_source_file(session_id: str, source_id: str, db: Session = Depends(get_db)):
+    row = load_session(db, session_id)
+    source = db.get(Source, source_id)
+    blob = db.get(FileBlob, source_id) if source is not None and source.session_id == row.id else None
+    if blob is None:
+        raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
+    headers = {
+        "Content-Disposition": f"attachment; filename=\"file{source.extension}\"; filename*=UTF-8''{quote(source.name)}",
+        "X-Content-Type-Options": "nosniff",
+    }
+    return Response(content=blob.content, media_type="application/octet-stream", headers=headers)
 
 
 @router.delete("/sources/{source_id}", status_code=status.HTTP_204_NO_CONTENT, summary="자료 삭제")

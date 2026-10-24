@@ -7,6 +7,7 @@ from app.config import Settings
 from app.main import create_app
 from app.models import HandoverSession
 from app.services.documents import add_version
+from app.services.exporters import strip_citation_marks
 
 
 @pytest.fixture()
@@ -70,7 +71,7 @@ def test_send_by_name_and_recipient_sees_it_in_received(mock_client):
     assert mock_client.get("/api/me/received?q=없는업무").json()["message"] == "아직 인수받은 인수인계서가 없습니다."
     md = mock_client.get(f"/api/me/received/{item['id']}/download?format=md")
     assert md.status_code == 200 and md.content.decode().endswith("보낸 뒤 고침") and "v2.md" in md.headers["content-disposition"]
-    assert mock_client.get(f"/api/me/received/{item['id']}/download?format=md&sent=true").content.decode() == doc["markdown"]
+    assert mock_client.get(f"/api/me/received/{item['id']}/download?format=md&sent=true").content.decode() == strip_citation_marks(doc["markdown"])
     assert mock_client.get(f"/api/me/received/{item['id']}/download?format=docx").status_code == 200
 
     # 보내면 인수자로 연결되어 원래 세션 문서를 읽을 수는 있지만(받은 인수인계) 고칠 수는 없다
