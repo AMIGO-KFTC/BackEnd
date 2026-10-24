@@ -1,6 +1,6 @@
 """메일 조회 API: 업무 자료를 올릴 때 메일함에서 업무 메일을 찾아 골라 가져온다.
 
-- GET  /api/mail/messages                 메일 목록(검색·기간·보낸 사람·첨부 여부, task_id 를 주면 단위업무 관련도순)
+- GET  /api/mail/messages                 메일 목록(검색어·제목·관련 사람·기간·보낸 사람·첨부 여부, task_id 를 주면 단위업무 관련도순)
 - GET  /api/mail/messages/{message_id}    메일 상세(본문·첨부 목록)
 - POST /api/sessions/{session_id}/mails   고른 메일을 업무 자료(.eml)로 가져오기 → 적재
 - POST /api/unit-tasks/{task_id}/mails    단위업무로 가져오기 → 적재가 끝나면 AI 분석 자동 시작(app/routers/unit_tasks.py)
@@ -81,11 +81,14 @@ def _context(db: Session, user: User, task_id: str | None, session_id: str | Non
 @router.get("/messages", response_model=MailListOut, summary="메일 목록 조회(가상 메일 조회 API)")
 def list_messages(
     q: str = Query(default="", max_length=100, description="제목·본문·보낸 사람·첨부파일 이름 검색(띄어 쓴 낱말은 모두 포함)"),
+    subject: str = Query(default="", max_length=100, description="제목 검색(제목에 모든 낱말이 들어 있는 메일만)"),
+    person: str = Query(default="", max_length=100, description="관련 사람 이름 또는 주소 일부(보낸 사람·받는 사람·참조 중 하나라도 맞으면)"),
     sender: str = Query(default="", max_length=100, description="보낸 사람 이름 또는 주소 일부"),
     folder: Literal["", "inbox", "sent"] = Query(default="", description="inbox(받은 메일) | sent(보낸 메일) | 비우면 전체"),
     date_from: date | None = Query(default=None, description="이 날짜부터(YYYY-MM-DD)"),
     date_to: date | None = Query(default=None, description="이 날짜까지(YYYY-MM-DD)"),
     has_attachments: bool | None = Query(default=None, description="true 면 첨부가 있는 메일만"),
+    important: bool | None = Query(default=None, description="true 면 중요 표시한 메일만"),
     task_id: str | None = Query(default=None, description="단위업무 ID. 주면 관련도순으로 정렬하고 이미 가져온 메일을 표시"),
     session_id: str | None = Query(default=None, description="세션 ID(task_id 대신)"),
     page: int = Query(default=1, ge=1),
@@ -97,11 +100,14 @@ def list_messages(
     row, keywords = _context(db, user, task_id, session_id)
     query = MailQuery(
         q=q.strip(),
+        subject=subject.strip(),
+        person=person.strip(),
         sender=sender,
         folder=folder,
         date_from=datetime.combine(date_from, time.min, KST) if date_from else None,
         date_to=datetime.combine(date_to, time.max, KST) if date_to else None,
         has_attachments=has_attachments,
+        important=important,
         keywords=keywords,
         page=page,
         size=size,

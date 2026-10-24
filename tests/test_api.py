@@ -254,3 +254,26 @@ def test_png_is_accepted_and_explains_when_claude_is_not_connected(client, setti
     wait_for(client, sid, idle)
     source = client.get(f"/api/sessions/{sid}/sources").json()[0]
     assert source["name"] == "화면.png" and source["status"] == "failed" and "읽을 수 없어요" in source["error"]
+
+
+def test_sources_archive_downloads_all_uploaded_files_as_one_zip(client, sample_dir):
+    import io
+    import zipfile
+
+    sid = client.post("/api/sessions", json=PROFILE).json()["id"]
+    assert client.get(f"/api/sessions/{sid}/sources/archive").status_code == 404  # 올린 파일이 아직 없다
+
+    picked = [sample_dir / "업무정의서_웹서비스팀.pdf", sample_dir / "주간회의록_2026-09-22.docx"]
+    files = [("files", (p.name, p.read_bytes(), "application/octet-stream")) for p in picked]
+    files += [("files", ("같은이름.txt", b"first", "text/plain")), ("files", ("같은이름.txt", b"second", "text/plain")), ("files", ("악성.exe", b"MZ", "application/octet-stream"))]
+    client.post(f"/api/sessions/{sid}/upload", files=files)
+    wait_for(client, sid, idle)
+
+    res = client.get(f"/api/sessions/{sid}/sources/archive")
+    assert res.status_code == 200 and res.headers["content-type"] == "application/zip"
+    assert "filename*=UTF-8''" in res.headers["content-disposition"] and ".zip" in res.headers["content-disposition"]
+    with zipfile.ZipFile(io.BytesIO(res.content)) as archive:
+        names = sorted(archive.namelist())
+        assert names == sorted([picked[0].name, picked[1].name, "같은이름.txt", "같은이름 (2).txt"])  # 실패한 파일은 빠지고, 같은 이름은 구분된다
+        assert archive.read(picked[0].name) == picked[0].read_bytes()  # 원본 그대로
+    assert client.get("/api/sessions/nope/sources/archive").status_code == 404

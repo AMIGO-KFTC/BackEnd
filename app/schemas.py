@@ -918,3 +918,51 @@ class TransfersOut(Result):
     transfers: list[TransferSummary]
     total: int
     unread_count: int = Field(default=0, description="아직 열어 보지 않은 받은 인수인계서 수")
+
+
+class HandoverChatScope(BaseModel):
+    id: str = Field(description="질문 범위 ID. 내 업무와 전달받은 업무는 세션 ID, 인계자가 지워 보낸 시점 문서만 남은 것은 'transfer:<ID>'")
+    title: str
+    task_name: str
+    owner_name: str = Field(description="인계자")
+    kind: Literal["mine", "received"] = Field(description="mine: 내가 만든 업무, received: 인계자가 나에게 전송한 인수인계서(원본 자료는 공유되지 않아 인수인계서만 근거가 된다)")
+    version: int = Field(description="인수인계서 버전(아직 없으면 0)")
+    has_document: bool
+    source_count: int = Field(description="질문 근거가 되는 올린 자료 수(분석이 끝난 파일·링크·메일). 받은 인수인계는 항상 0")
+    session_id: str | None = Field(description="화면에서 열 수 있는 세션 ID(지워졌으면 null)")
+    updated_at: datetime
+
+
+class HandoverChatScopesOut(BaseModel):
+    scopes: list[HandoverChatScope]
+
+
+class ChatTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(max_length=6000)
+
+
+class HandoverChatIn(_Stripped):
+    question: str = Field(min_length=1, max_length=2000, description="인수인계에 대한 질문")
+    history: list[ChatTurn] = Field(default_factory=list, max_length=40, description="앞선 대화(꼬리 질문을 이해하는 데 쓴다. 최근 8개만 쓴다)")
+    scope_ids: list[str] | None = Field(default=None, max_length=50, description="질문할 업무 ID(GET /api/handover-chat/scopes 의 id). 비우면 볼 수 있는 모든 업무")
+
+
+class HandoverChatSource(BaseModel):
+    scope_id: str
+    scope_title: str
+    scope_task: str = Field(default="", description="참조한 업무 이름(단위업무명). 없으면 빈 문자열")
+    scope_kind: Literal["mine", "received"] = Field(default="mine", description="mine: 내 업무, received: 전달받은 인수인계")
+    scope_owner: str = Field(default="", description="그 업무의 인계자 이름")
+    session_id: str | None = Field(description="인수인계서를 열 수 있는 세션 ID(지워졌으면 null)")
+    kind: Literal["document", "answer", "mail", "link", "file", "note"] = Field(description="document: 인수인계서, answer: 인계자 답변, mail: 메일, link: 링크, file: 올린 파일, note: 메모")
+    label: str = Field(description="출처 표기(파일명 p.3, 메일 제목, 인수인계서 v4 › 장 제목 …)")
+    source_id: str | None = Field(default=None, description="올린 자료(파일·메일)의 ID. 내 업무면 GET /api/sessions/{session_id}/sources/{source_id}/file 로 원본을 받을 수 있다")
+
+
+class HandoverChatOut(BaseModel):
+    answer: str = Field(description="답변(Markdown)")
+    grounded: bool = Field(description="자료에 적힌 내용으로 답했는지(false 면 자료에서 못 찾았거나 관련 없는 질문)")
+    sources: list[HandoverChatSource] = Field(description="답에 근거로 쓴 자료")
+    searched: int = Field(description="질문과 관련 있다고 찾은 근거 조각 수")
+    engine: str = Field(description="답한 엔진: claude | offline | mock")

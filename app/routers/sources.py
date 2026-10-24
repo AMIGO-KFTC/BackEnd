@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+import io
+import re
 import uuid
+import zipfile
 from urllib.parse import quote, urlparse
 
 from amigo_rag import detect_link_type
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import FileBlob, HandoverSession, Message, Source
@@ -92,6 +96,40 @@ def add_links(session_id: str, body: LinksIn, db: Session = Depends(get_db), ser
 @router.get("/sources", response_model=list[SourceOut], summary="등록 자료 목록")
 def list_sources(session_id: str, db: Session = Depends(get_db)):
     return [SourceOut.model_validate(s) for s in load_session(db, session_id).sources]
+
+
+def _archive_name(name: str, used: set[str]) -> str:
+    """ZIP 안의 파일 이름. 경로 문자는 바꾸고, 같은 이름이 또 나오면 '이름 (2).확장자' 로 구분한다."""
+    clean = re.sub(r'[\\/:*?"<>|\r\n]+', "_", name).strip() or "파일"
+    stem, dot, ext = clean.rpartition(".")
+    if not dot:
+        stem, ext = clean, ""
+    candidate, n = clean, 2
+    while candidate.lower() in used:
+        candidate = f"{stem} ({n}){'.' + ext if ext else ''}"
+        n += 1
+    used.add(candidate.lower())
+    return candidate
+
+
+@router.get("/sources/archive", summary="올린 파일 원본을 ZIP 한 개로 내려받기(완성 문서의 '사용한 자료' 전체)")
+def download_sources_archive(session_id: str, db: Session = Depends(get_db)):
+    """이 인수인계서를 만드는 데 올린 파일(처리에 실패한 파일·링크 제외) 원본을 한 번에 받는다. 메일(.eml)·메일 캡처 그림도 파일이라 함께 들어간다."""
+    row = load_session(db, session_id)
+    files = [s for s in row.sources if s.kind == "file" and s.status != "failed"]
+    blobs = {b.source_id: b for b in db.scalars(select(FileBlob).where(FileBlob.source_id.in_([s.id for s in files])))} if files else {}
+    buffer, used, count = io.BytesIO(), set(), 0
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for source in sorted(files, key=lambda s: s.created_at):
+            blob = blobs.get(source.id)
+            if blob is not None:
+                archive.writestr(_archive_name(source.name, used), blob.content)
+                count += 1
+    if not count:
+        raise HTTPException(status_code=404, detail="내려받을 자료 파일이 없습니다.")
+    name = re.sub(r"[^\w가-힣.-]+", "_", f"인수인계_사용자료_{row.owner_name or row.id[:6]}_{count}개").strip("_") + ".zip"
+    headers = {"Content-Disposition": f"attachment; filename=\"sources.zip\"; filename*=UTF-8''{quote(name)}", "X-Content-Type-Options": "nosniff"}
+    return Response(content=buffer.getvalue(), media_type="application/zip", headers=headers)
 
 
 @router.get("/sources/{source_id}/file", summary="올린 파일 원본 내려받기(완성 문서 화면의 '출처' 목록)")

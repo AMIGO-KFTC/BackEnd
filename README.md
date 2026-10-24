@@ -596,14 +596,33 @@ AI 가 만든 초안과 사용자가 화면에서 직접 고친 문서를 모두
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
-| GET | `/api/mail/messages?q=&sender=&folder=inbox\|sent&date_from=&date_to=&has_attachments=&task_id=&session_id=&page=1&size=20` | 메일 목록. `task_id`(또는 `session_id`)를 주면 단위업무 낱말로 **관련도순** 정렬(`relevance`, `recommended`)하고 이미 가져온 메일은 `imported: true` |
+| GET | `/api/mail/messages?q=&subject=&person=&sender=&folder=inbox\|sent&date_from=&date_to=&has_attachments=&important=&task_id=&session_id=&page=1&size=20` | 메일 목록. `task_id`(또는 `session_id`)를 주면 단위업무 낱말로 **관련도순** 정렬(`relevance`, `recommended`)하고 이미 가져온 메일은 `imported: true` |
 | GET | `/api/mail/messages/{message_id}` | 메일 상세(본문·참조·첨부 목록) |
+
+검색 조건: `q` 는 제목·본문·보낸 사람·첨부 이름을 모두 찾고, `subject` 는 **제목에만**(띄어 쓴 낱말은 모두 포함), `person` 은 **보낸 사람·받는 사람·참조**의 이름·주소 일부에 맞는 메일만 찾습니다. `important=true` 는 중요 표시한 메일만입니다. 조건은 함께 쓰면 모두 맞아야 합니다. 화면의 새 탭 메일함(`#/pick/mail`)이 이 조건으로 검색하고, 고른 메일은 원래 창에서 위의 `POST …/mails` 로 가져옵니다.
+
 | POST | `/api/unit-tasks/{task_id}/mails` | 고른 메일 가져오기 `{"message_ids": ["m-0001", ...]}`(최대 20건) → 파일 업로드와 똑같이 적재, 끝나면 AI 분석 자동 시작 |
 | POST | `/api/sessions/{id}/mails` | 세션 흐름에서 가져오기(분석이 끝난 세션이면 새 자료로 재분석) |
 
 가져온 메일은 표준 `.eml`(본문 + 첨부)로 만들어 업로드 파일과 같이 원본은 `file_blobs`, 파싱용 사본은 디스크에 둡니다.
 자료 목록에서는 `kind: "file"`, `link_type: "mail"`, `url: "mail:<메일 ID>"` 로 구분되고, 같은 메일은 두 번 가져오지 않습니다(`skipped`).
 RAG 메일 파서가 보낸 사람·받는 사람·일시·제목을 출처 표기로 쓰고 지원 형식의 첨부파일도 함께 읽습니다.
+
+### 인수인계 챗봇 (올린 자료 · 인계자 답변 · 인수인계서 기반 질의응답)
+
+인수인계자가 올린 파일·메일·링크, 인터뷰에서 한 인계자 답변, 완성된 인수인계서를 근거로 질문에 답합니다. 인수인계서는 근거 중 하나입니다.
+질문마다 업무(세션)별 지식베이스를 검색하고, 인수인계서는 질문과 관련 있는 장만 골라 같은 근거 목록으로 Claude 에 줍니다(Claude 가 연결되지 않으면 관련 근거를 출처와 함께 그대로 보여 줍니다).
+인수인계서에 붙은 근거 번호(`[1]`)는 챗봇이 풀 수 없으므로 내려받는 문서처럼 뺍니다(`strip_citation_marks`).
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/handover-chat/scopes` | 질문할 수 있는 업무 목록. `kind` 가 `mine`(내 업무: 올린 자료 `source_count`건 + 인수인계서 유무 `has_document`) 또는 `received`(인계자가 전송한 인수인계서) |
+| POST | `/api/handover-chat` | `{"question", "history": [{"role","content"}], "scope_ids": [...]}` → `answer`(Markdown), `grounded`(자료에 근거가 있는지), `sources`(근거로 쓴 자료: 어느 업무인지 `scope_id`·`scope_task`(업무명)·`scope_kind`(mine/received)·`scope_owner`, 자료 `kind` = document·answer·mail·link·file·note, `label`, 올린 파일·메일이면 `source_id`), `searched`, `engine` |
+
+- `scope_ids` 를 비우면 볼 수 있는 모든 업무에 묻습니다. 남의 업무 ID 는 404 입니다.
+- **전달받은 인수인계(`received`)는 인수인계서만 근거**입니다. 인계자가 보낸 것은 인수인계서뿐이라 원본 자료·답변은 읽지 않습니다.
+- `sources[].source_id` 로 `GET /api/sessions/{session_id}/sources/{source_id}/file` 을 불러 올린 파일·메일 원본을 받을 수 있습니다.
+- 대화는 서버에 저장하지 않고 화면이 `history`(최근 8개만 사용)로 보냅니다. Claude 엔진이면 예산(`AMIGO_LLM_BUDGET_USD`) 한도에 막힙니다(챗봇 호출 비용은 아직 사용량 합계에 넣지 않습니다).
 
 ### 근거 원문 · 지식베이스
 
