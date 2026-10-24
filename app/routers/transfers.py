@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from ..models import HandoverTransfer, Message, User, UserProfile, utcnow
 from ..schemas import RecipientCandidate, RecipientSearchOut, TransferDetail, TransferIn, TransferResult, TransfersOut, TransferSummary
 from ..services.documents import ORIGIN_LABELS, latest_version
-from ..services.exporters import to_docx, to_pdf
+from ..services.exporters import strip_citation_marks, to_docx, to_pdf
 from .deps import as_utc, current_user, get_db, load_session
 from .documents import MEDIA_TYPES
 
@@ -221,6 +221,7 @@ def received_download(
     t = _load_received(db, user, transfer_id)
     markdown, version = (t.markdown, t.document_version) if sent else _current(db, t)[:2]
     title = f"{t.sender_name} 인수인계서"
+    markdown = strip_citation_marks(markdown)  # 근거 번호는 화면에서만 쓴다
     if format == "pdf":
         content = to_pdf(markdown, title=title)
     elif format == "docx":

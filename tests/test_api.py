@@ -36,8 +36,8 @@ def test_full_flow_upload_analyze_chat_generate_download(client, sample_dir):
     state = wait_for(client, sid, lambda s: s["status"] == "waiting")
     session = state["session"]
     assert session["stage"] == "qna" and session["engine"] == "offline"
-    assert set(session["slots"]) == {"overview", "stakeholders", "regular", "irregular", "systems", "dept_notes"}
-    assert session["progress"]["current"] == session["progress"]["total"] == 6
+    assert set(session["slots"]) == {"overview", "regular", "partners", "irregular", "stakeholders", "systems", "dept_notes"}
+    assert session["progress"]["current"] == session["progress"]["total"] == 7
     kinds = [m["kind"] for m in state["messages"]]
     assert kinds[0] == "info" and "summary" in kinds and kinds[-1] == "question"
     question = state["messages"][-1]
@@ -69,6 +69,7 @@ def test_full_flow_upload_analyze_chat_generate_download(client, sample_dir):
     md = client.get(f"/api/sessions/{sid}/download", params={"format": "md"})
     assert md.headers["content-type"].startswith("text/markdown")
     assert "filename*=UTF-8''" in md.headers["content-disposition"]
+    assert " [1]" in doc["markdown"] and " [1]" not in md.text  # 근거 번호는 화면에서만 쓰고 내려받는 문서에서는 뺀다
 
     docx = client.get(f"/api/sessions/{sid}/download", params={"format": "docx"})
     assert docx.status_code == 200
@@ -224,7 +225,7 @@ def test_leave_mode_session_is_light_and_config_lists_modes(client, sample_dir):
     wait_for(client, sid, idle)
     assert client.post(f"/api/sessions/{sid}/analyze").status_code == 202
     state = wait_for(client, sid, lambda s: s["status"] == "waiting")
-    assert set(state["session"]["slots"]) == {"leave_units", "leave_tasks", "systems"}
+    assert set(state["session"]["slots"]) == {"leave_tasks", "systems", "contacts"}
 
 
 def test_leave_period_is_saved_and_shown_in_the_prompt_profile(client):

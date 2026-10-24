@@ -157,6 +157,10 @@ def test_upload_stores_files_in_db_and_starts_ai(client, sample_dir):
     original = client.get(f"/api/unit-tasks/{task['id']}/files/{by_name[hwpx.name]['id']}")
     assert original.status_code == 200 and original.content == hwpx.read_bytes()
     assert "filename*=UTF-8''" in original.headers["content-disposition"]
+    # 완성 문서 화면의 '출처' 목록에서도 세션 기준으로 같은 원본을 내려받는다
+    same = client.get(f"/api/sessions/{sid}/sources/{by_name[hwpx.name]['id']}/file")
+    assert same.status_code == 200 and same.content == hwpx.read_bytes()
+    assert client.get(f"/api/sessions/{sid}/sources/{by_name['악성.exe']['id']}/file").status_code == 404
 
     # '분석 시작'을 누르지 않아도 적재가 끝나면 AI 가 분석하고 첫 질문을 한다
     state = wait_for(client, sid, lambda s: idle(s) and s["status"] == "waiting")
