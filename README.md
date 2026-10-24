@@ -847,7 +847,7 @@ Word 는 '맑은 고딕'을 동아시아 글꼴로 지정하고, PDF 는 시스�
 | `AMIGO_EXPOSE_RESET_TOKEN` | `false` | 개발용: 비밀번호 찾기 응답에 토큰을 넣음(메일 연동 전). 운영에서는 `false` |
 | `AMIGO_PDF_FONT`, `AMIGO_PDF_FONT_BOLD` | (자동 탐색) | PDF 에 넣을 한글 글꼴(.ttf) 경로 |
 
-AI 에이전트 설정(`AMIGO_EFFORT_*`, `AMIGO_MAX_QUESTIONS` 등)은 [AI README](https://github.com/AMIGO-KFTC/AI#llm-설정-claude),
+AI 에이전트 설정(`AMIGO_EFFORT_*` 등)은 [AI README](https://github.com/AMIGO-KFTC/AI#llm-설정-claude),
 문서 처리·링크 수집 설정(`AMIGO_RAG_*`, `CONFLUENCE_*`, `NANUMI_*`)은 [RAG README](https://github.com/AMIGO-KFTC/RAG#환경변수)를 보세요.
 ChromaDB 위치는 BackEnd 가 `AMIGO_DATA_DIR/rag` 로 지정하므로 `AMIGO_RAG_DATA_DIR` 은 쓰지 않습니다.
 

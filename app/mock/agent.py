@@ -31,7 +31,6 @@ QUICK_REPLIES_CONFIRM = ["네, 맞아요", "수정할게요"]
 YES = ("네", "예", "맞아요", "맞습니다", "응", "ok", "okay", "좋아요")
 SKIP = ("모르겠어요", "건너뛰기", "건너뛸게요", "해당 없음", "없어요")
 FINISH = ("지금 문서 생성", "문서 생성", "문서 만들어", "인수인계서 생성")
-MAX_QUESTIONS = 12
 
 
 class MockAgent:
@@ -222,7 +221,7 @@ class MockAgent:
     # ------------------------------------------------------------------ 시나리오 진행
     def _next(self, st: dict, emit: _Emitter, ack: str = "") -> None:
         open_gaps = [g for g in st["gaps"] if g["status"] == "open"]
-        if open_gaps and st["question_count"] < MAX_QUESTIONS:
+        if open_gaps:  # 질문 수는 제한하지 않는다(남은 질문을 모두 묻는다)
             gap = open_gaps[0]
             gap["status"] = "asked"
             st["current_gap_id"] = gap["id"]
@@ -235,7 +234,7 @@ class MockAgent:
                      remaining=len(open_gaps) - 1, quick_replies=QUICK_REPLIES_QNA, allow_files=True)
             st["waiting"] = True
             return
-        text = "필요한 정보가 모두 모였어요. 인수인계서를 작성할게요." if not open_gaps else "주요 질문을 모두 드렸어요. 남은 내용은 '확인 필요 사항'에 표시하고 인수인계서를 작성할게요."
+        text = "질문을 모두 마쳤어요. 건너뛴 내용은 화면 오른쪽 '확인 필요 사항'에 남겨 두고 인수인계서를 작성할게요."
         emit.say("info", (ack + "\n\n" if ack else "") + text)
         self._compose(st, emit)
 
@@ -364,7 +363,7 @@ class MockAgent:
             detail = f" — {slot['summary']}" if slot["summary"] else ""
             lines.append(f"- {icon} **{spec.title}** · {COVERAGE_LABELS[slot['coverage']]} ({len(slot['items'])}건){detail}")
         remaining = sum(1 for g in st["gaps"] if g["status"] == "open")
-        closing = (f"부족한 부분을 채우기 위해 **한 번에 하나씩** 질문드릴게요(최대 {min(remaining, MAX_QUESTIONS)}개). "
+        closing = (f"부족한 부분을 채우기 위해 **한 번에 하나씩** 질문드릴게요(모두 {remaining}개). "
                    "모르는 내용은 '건너뛰기', 관련 파일이 있으면 언제든 첨부해 주세요.") if remaining else "자료만으로 필요한 정보가 충족되었어요. 바로 인수인계서를 작성할게요."
         return f"{head}\n\n" + "\n".join(lines) + f"\n\n{closing}"
 
