@@ -15,7 +15,7 @@ from datetime import date
 from pathlib import PurePosixPath
 from typing import Any
 
-from amigo_agent import AgentStateError
+from amigo_agent import AgentConfig, AgentStateError, QAScope, answer_from_materials
 from amigo_agent.dept_info import clean_dept_info, has_info, pick_questions
 from amigo_agent.edits import apply_gantt_edit
 from amigo_agent.render import render_document
@@ -47,6 +47,10 @@ class MockAgent:
 
     def usage(self) -> None:
         return None
+
+    def answer_question(self, question: str, history: list[dict[str, str]], scopes: list[QAScope]) -> dict[str, Any]:
+        """가상 응답 모드: Claude 없이 질문과 가까운 근거를 자료에서 그대로 보여 준다."""
+        return answer_from_materials(None, AgentConfig(), question, history, scopes)
 
     # ------------------------------------------------------------------ 실행
     def start(self, thread_id: str, profile: dict[str, Any], kb: Any, on_event: EventHandler = None) -> None:

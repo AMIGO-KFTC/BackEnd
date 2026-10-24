@@ -59,11 +59,14 @@ class MailMessage:
 @dataclass
 class MailQuery:
     q: str = ""
+    subject: str = ""  # 제목에 들어 있는 낱말(띄어 쓴 낱말은 모두 포함)
+    person: str = ""  # 보낸 사람·받는 사람·참조에 이름이나 주소가 들어 있는 메일
     sender: str = ""
     folder: str = ""  # 비우면 전체
     date_from: datetime | None = None
     date_to: datetime | None = None
     has_attachments: bool | None = None
+    important: bool | None = None  # true 면 중요 표시한 메일만
     keywords: list[str] = field(default_factory=list)  # 단위업무명·설명에서 뽑은 낱말(관련도 정렬용)
     page: int = 1
     size: int = 20
@@ -281,6 +284,8 @@ class MockMailProvider:
     def search(self, owner: MailAddress, query: MailQuery) -> MailPage:
         terms = [t.lower() for t in query.q.split() if t]
         sender = query.sender.strip().lower()
+        subject_terms = [t.lower() for t in query.subject.split() if t]
+        person = query.person.strip().lower()
         hits: list[tuple[MailMessage, int]] = []
         for m in self._messages(owner):
             if query.folder and m.folder != query.folder:
@@ -291,7 +296,13 @@ class MockMailProvider:
                 continue
             if query.has_attachments is not None and bool(m.attachments) != query.has_attachments:
                 continue
+            if query.important is not None and m.important != query.important:
+                continue
             if sender and sender not in f"{m.sender.name} {m.sender.email}".lower():
+                continue
+            if subject_terms and any(t not in m.subject.lower() for t in subject_terms):
+                continue
+            if person and not any(person in f"{a.name} {a.email}".lower() for a in (m.sender, *m.to, *m.cc)):
                 continue
             text = " ".join([m.subject, m.body, m.sender.name, m.sender.email, *(a.name for a in m.attachments)]).lower()
             if any(t not in text for t in terms):
