@@ -1,4 +1,4 @@
-"""DB 모델: 사용자(관리자 권한) · 프로필 · 팀 인수인계서 지침 · 로그인 세션 · 비밀번호 재설정 · 단위업무 · 인수인계 세션 · 등록 자료(파일 원본) · 대화 메시지 · 대화 진행 상태 · 인수인계서 버전 · 인수인계서 전송 · 캘린더 일정·할 일."""
+"""DB 모델: 사용자(관리자 권한) · 프로필 · 팀 인수인계서 지침 · 팀 담당 업무 · 로그인 세션 · 비밀번호 재설정 · 단위업무 · 인수인계 세션 · 등록 자료(파일 원본) · 대화 메시지 · 대화 진행 상태 · 인수인계서 버전 · 인수인계서 전송 · 캘린더 일정·할 일."""
 
 from __future__ import annotations
 
@@ -70,6 +70,22 @@ class TeamGuideline(Base):
     notes: Mapped[str] = mapped_column(Text, default="")
     prompt: Mapped[str] = mapped_column(Text, default="")  # 팀 전용 프롬프트(AI 가 항상 따라야 하는 역할과 판단 기준)
     updated_by: Mapped[str] = mapped_column(String(50), default="")
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class TeamDuty(Base):
+    """팀 담당 업무 목록. 소속(프로필의 부서 + 팀)마다 팀장이 관리자 화면에서 정해 두고, 구성원은 인수인계 1단계에서 이 목록에서 담당 업무를 고른다."""
+
+    __tablename__ = "team_duties"
+    __table_args__ = (UniqueConstraint("organization", "name", name="uq_team_duties_org_name"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    organization: Mapped[str] = mapped_column(String(100), index=True)  # organization_key 로 맞춘 소속
+    name: Mapped[str] = mapped_column(String(100))
+    description: Mapped[str] = mapped_column(Text, default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    updated_by: Mapped[str] = mapped_column(String(50), default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
 
@@ -336,6 +352,42 @@ class PlannerTodo(Base):
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
 
+
+
+class PlannerWeekTask(Base):
+    """주간 업무(계정별): 캘린더 화면에서 주(달력 한 줄)를 골라 적는 그 주에만 할 일. week 는 그 주 일요일 날짜다. key 는 PlannerEvent 와 같은 규칙."""
+
+    __tablename__ = "planner_week_tasks"
+    __table_args__ = (UniqueConstraint("user_id", "key", name="uq_planner_week_tasks_user_key"), Index("ix_planner_week_tasks_user_week", "user_id", "week"))
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    key: Mapped[str] = mapped_column(String(40))
+    week: Mapped[str] = mapped_column(String(10))  # 그 주 일요일 YYYY-MM-DD
+    text: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class PlannerRoutine(Base):
+    """정기 업무(계정별): 받은 인수인계서에서 가져온 매일·매주·매월·분기·반기·매년·수시로 하는 일.
+
+    날짜로 풀지 않고 캘린더 화면의 '정기 업무' 칸에 주기(cadence)별로 보여 준다. key 는 PlannerEvent 와 같은 규칙.
+    """
+
+    __tablename__ = "planner_routines"
+    __table_args__ = (UniqueConstraint("user_id", "key", name="uq_planner_routines_user_key"), Index("ix_planner_routines_user_id", "user_id"))
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    key: Mapped[str] = mapped_column(String(40))
+    cadence: Mapped[str] = mapped_column(String(20))  # daily | weekly | monthly | quarterly | yearly | other
+    name: Mapped[str] = mapped_column(String(200))  # 업무명
+    timing: Mapped[str] = mapped_column(String(200), default="")  # 인수인계서에 적힌 수행 시기 그대로
+    months: Mapped[str] = mapped_column(String(40), default="")  # 분기·반기·매년 업무의 해당 월("3,6,9,12"), 비면 매달 또는 모름
+    source: Mapped[str] = mapped_column(String(200), default="")  # 가져온 인수인계서(단위업무명)
+    session_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
 class FileBlob(Base):
     """업로드 파일 원본(바이트). 목록 조회 때 큰 데이터를 읽지 않도록 sources 와 분리했다."""
 
@@ -390,3 +442,38 @@ class AgentCheckpointWrite(Base):
     channel: Mapped[str] = mapped_column(String())
     type: Mapped[str | None] = mapped_column(String(50), default=None)
     value: Mapped[bytes | None] = mapped_column(LargeBinary, default=None)
+
+
+class PersonnelSchedule(Base):
+    """정기인사 일정(팀장이 등록). 1년에 여러 번 있을 수 있다. 등록한 팀장의 소속('부서 팀') 단위(organization 이 빈 값인 예전 전사 일정은 더 보이지 않는다)."""
+
+    __tablename__ = "personnel_schedules"
+    __table_args__ = (Index("ix_personnel_schedules_org_date", "organization", "appoint_date"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(100))  # 예: 2027 상반기 정기인사
+    announce_date: Mapped[str] = mapped_column(String(10), default="")  # 발표일 YYYY-MM-DD(비워도 됨)
+    appoint_date: Mapped[str] = mapped_column(String(10))  # 발령일 YYYY-MM-DD
+    organization: Mapped[str] = mapped_column(String(100), default="")  # 소속 '부서 팀'
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), default=None)
+    created_by_name: Mapped[str] = mapped_column(String(50), default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class TeamSchedule(Base):
+    """팀 공유 일정(팀장이 등록, 워크숍·회의·마감 등). 같은 소속('부서 팀') 구성원의 홈·캘린더에 함께 나온다."""
+
+    __tablename__ = "team_schedules"
+    __table_args__ = (Index("ix_team_schedules_org_date", "organization", "start_date"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(100))  # 예: 하반기 팀 워크숍
+    start_date: Mapped[str] = mapped_column(String(10))  # 시작일 YYYY-MM-DD
+    end_date: Mapped[str] = mapped_column(String(10), default="")  # 끝나는 날 YYYY-MM-DD(하루짜리면 빈 값)
+    memo: Mapped[str] = mapped_column(String(300), default="")
+    organization: Mapped[str] = mapped_column(String(100), default="")  # 소속 '부서 팀'
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), default=None)
+    created_by_name: Mapped[str] = mapped_column(String(50), default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)

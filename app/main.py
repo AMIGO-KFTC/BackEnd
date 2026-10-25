@@ -35,11 +35,14 @@ from .routers import (
     mail,
     me,
     mock_wiki,
+    personnel,
     planner,
     profile,
     sessions,
     sources,
+    team_duties,
     team_guidelines,
+    team_schedules,
     transfers,
     unit_tasks,
 )
@@ -89,6 +92,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         admin.router,
         profile.router,
         team_guidelines.router,
+        team_duties.router,
         unit_tasks.router,
         conversations.router,
         documents.mine_router,
@@ -96,6 +100,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         integrations.router,
         transfers.router,
         planner.router,
+        personnel.router,
+        team_schedules.router,
     ):
         app.include_router(router)
     # 로그인 계정이 만든 세션은 그 계정만 접근

@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from ..models import HandoverTransfer, Message, User, UserProfile, utcnow
 from ..schemas import RecipientCandidate, RecipientSearchOut, TransferDetail, TransferIn, TransferResult, TransfersOut, TransferSummary
 from ..services.documents import ORIGIN_LABELS, latest_version
+from ..services.handover_calendar import add_handover_schedule, summary_message
 from ..services.exporters import strip_citation_marks, to_docx, to_pdf
 from .deps import as_utc, current_user, get_db, load_session
 from .documents import MEDIA_TYPES
@@ -148,11 +149,18 @@ def send_transfer(session_id: str, body: TransferIn, user: User = Depends(curren
         row.successor = recipient.name
     if not row.successor_login_id:  # '받은 인수인계'(/api/handovers/received)에도 나타나게
         row.successor_login_id = recipient.login_id
+    calendar = add_handover_schedule(db, recipient, row)  # 정기업무·마감일을 인수자 캘린더에(같은 일정은 두 번 넣지 않는다)
     notice = f"인수인계서 v{row.document_version}을(를) {recipient.name}님에게 보냈습니다."
     db.add(Message(session_id=row.id, role="system", kind="info", content=notice, meta_json=json.dumps({"transfer_id": transfer.id}, ensure_ascii=False)))
     db.commit()
     db.refresh(transfer)
-    return TransferResult(message=notice, transfer=summary(db, transfer))
+    return TransferResult(
+        message=notice,
+        transfer=summary(db, transfer),
+        calendar_events=calendar.events,
+        calendar_routines=calendar.routines,
+        calendar_message=summary_message(calendar, recipient.name),
+    )
 
 
 @session_router.get("/transfers", response_model=TransfersOut, summary="이 인수인계서를 보낸 기록(받는 사람·읽음 여부)")

@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from ..models import PlannerEvent, PlannerTodo, User
+from ..models import PlannerEvent, PlannerRoutine, PlannerTodo, PlannerWeekTask, User
 from ..schemas import (
     PlannerCleared,
     PlannerEventIn,
@@ -21,10 +21,14 @@ from ..schemas import (
     PlannerEventResult,
     PlannerImportIn,
     PlannerOut,
+    PlannerRoutineOut,
     PlannerTodoIn,
     PlannerTodoOut,
     PlannerTodoResult,
     PlannerTodoUpdate,
+    PlannerWeekTaskIn,
+    PlannerWeekTaskOut,
+    PlannerWeekTaskResult,
     Result,
 )
 from .deps import current_user, get_db
@@ -44,10 +48,27 @@ def _todo_out(row: PlannerTodo) -> PlannerTodoOut:
     return PlannerTodoOut(id=row.key, text=row.text, done=bool(row.done), date=row.date)
 
 
+def _routine_out(row: PlannerRoutine) -> PlannerRoutineOut:
+    months = [int(m) for m in (row.months or "").split(",") if m.strip().isdigit()]
+    return PlannerRoutineOut(id=row.key, cadence=row.cadence, name=row.name, timing=row.timing, months=months, source=row.source)
+
+
+def _week_task_out(row: PlannerWeekTask) -> PlannerWeekTaskOut:
+    return PlannerWeekTaskOut(id=row.key, week=row.week, text=row.text)
+
+
 def _planner(db: Session, user: User, message: str = "") -> PlannerOut:
     events = db.scalars(select(PlannerEvent).where(PlannerEvent.user_id == user.id).order_by(PlannerEvent.id)).all()
     todos = db.scalars(select(PlannerTodo).where(PlannerTodo.user_id == user.id).order_by(PlannerTodo.id)).all()
-    return PlannerOut(message=message, events=[_event_out(e) for e in events], todos=[_todo_out(t) for t in todos])
+    routines = db.scalars(select(PlannerRoutine).where(PlannerRoutine.user_id == user.id).order_by(PlannerRoutine.id)).all()
+    week_tasks = db.scalars(select(PlannerWeekTask).where(PlannerWeekTask.user_id == user.id).order_by(PlannerWeekTask.id)).all()
+    return PlannerOut(
+        message=message,
+        events=[_event_out(e) for e in events],
+        todos=[_todo_out(t) for t in todos],
+        routines=[_routine_out(r) for r in routines],
+        week_tasks=[_week_task_out(w) for w in week_tasks],
+    )
 
 
 def _find(db: Session, model, user: User, key: str):
@@ -111,6 +132,40 @@ def add_todo(body: PlannerTodoIn, response: Response, user: User = Depends(curre
     if not created:
         response.status_code = 200
     return PlannerTodoResult(message="할 일을 추가했습니다." if created else "이미 있는 할 일입니다.", todo=_todo_out(row))
+
+
+@router.post("/week-tasks", response_model=PlannerWeekTaskResult, status_code=201, summary="주간 업무 추가(같은 id 면 있던 값을 돌려준다)")
+def add_week_task(body: PlannerWeekTaskIn, response: Response, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    existing = _find(db, PlannerWeekTask, user, body.id) if body.id else None
+    if existing is not None:
+        response.status_code = 200
+        return PlannerWeekTaskResult(message="이미 있는 주간 업무입니다.", task=_week_task_out(existing))
+    if _count(db, PlannerWeekTask, user) >= MAX_EVENTS:
+        raise HTTPException(status_code=409, detail=TOO_MANY)
+    row = PlannerWeekTask(user_id=user.id, key=body.id or uuid.uuid4().hex, week=body.week, text=body.text)
+    db.add(row)
+    db.commit()
+    return PlannerWeekTaskResult(message="주간 업무를 추가했습니다.", task=_week_task_out(row))
+
+
+@router.delete("/week-tasks/{task_id}", response_model=Result, summary="주간 업무 삭제")
+def delete_week_task(task_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    row = _find(db, PlannerWeekTask, user, task_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="주간 업무를 찾을 수 없습니다.")
+    db.delete(row)
+    db.commit()
+    return Result(message="주간 업무를 지웠습니다.")
+
+
+@router.delete("/routines/{routine_id}", response_model=Result, summary="정기 업무 삭제(받은 인수인계서를 다시 적용하면 돌아온다)")
+def delete_routine(routine_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    row = _find(db, PlannerRoutine, user, routine_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="정기 업무를 찾을 수 없습니다.")
+    db.delete(row)
+    db.commit()
+    return Result(message="정기 업무를 지웠습니다.")
 
 
 @router.post("/todos/clear-done", response_model=PlannerCleared, summary="완료한 할 일 모두 지우기")

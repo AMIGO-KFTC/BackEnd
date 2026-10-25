@@ -137,3 +137,15 @@ def test_deleting_account_removes_planner(client):
         db.delete(db.scalar(select(User).where(User.login_id == "minsu.kim")))
         db.commit()
         assert db.scalar(select(func.count(PlannerEvent.id))) == 0 and db.scalar(select(func.count(PlannerTodo.id))) == 0
+
+
+def test_week_tasks_round_trip(client):
+    login(client)
+    res = client.post("/api/planner/week-tasks", json={"id": "w1", "week": "2026-10-28", "text": "주간 보고서 작성"})
+    assert res.status_code == 201 and res.json()["task"]["week"] == "2026-10-25"  # 수요일을 보내도 그 주 일요일로 맞춘다
+    assert client.post("/api/planner/week-tasks", json={"id": "w1", "week": "2026-10-25", "text": "주간 보고서 작성"}).status_code == 200
+    assert client.post("/api/planner/week-tasks", json={"week": "2026-10-25", "text": ""}).status_code == 422
+    assert client.get("/api/planner").json()["week_tasks"] == [{"id": "w1", "week": "2026-10-25", "text": "주간 보고서 작성"}]
+    assert client.delete("/api/planner/week-tasks/w1").status_code == 200
+    assert client.delete("/api/planner/week-tasks/w1").status_code == 404
+    assert client.get("/api/planner").json()["week_tasks"] == []

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
@@ -862,6 +862,36 @@ class TeamGuidelineOut(Result):
     prompt_preview: str = Field(description="AI 프롬프트에 들어가는 문구 미리보기(지침이 비어 있으면 빈 문자열)")
 
 
+# ---------------------------------------------------------------- 팀 담당 업무(팀장이 관리, 인수인계 1단계에서 고른다)
+
+
+class TeamDutyIn(_Stripped):
+    name: str = Field(min_length=1, max_length=100, description="업무 이름. 예: 홈페이지 운영")
+    description: str = Field(default="", max_length=500, description="업무 설명(선택)")
+
+
+class TeamDutyUpdate(_Stripped):
+    # 보낸 필드만 바꾼다
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=500)
+    sort_order: int | None = Field(default=None, ge=0, description="목록 순서(작을수록 앞)")
+
+
+class TeamDutyOut(BaseModel):
+    id: str
+    name: str
+    description: str
+    sort_order: int
+    updated_by: str = ""
+    updated_at: datetime | None = None
+
+
+class TeamDutiesOut(Result):
+    organization: str = Field(description="업무 목록이 속한 소속(부서 + 팀)")
+    duties: list[TeamDutyOut]
+    editable: bool = Field(description="이 계정이 목록을 고칠 수 있는지(팀 관리자)")
+
+
 # ---------------------------------------------------------------- 인수인계서 전송(인계자 → 인수자)
 
 
@@ -912,6 +942,15 @@ class TransferDetail(TransferSummary):
 
 class TransferResult(Result):
     transfer: TransferSummary
+    calendar_events: int = Field(default=0, description="인수자 캘린더에 새로 넣은 일정 수(마감일·시작·종료일)")
+    calendar_routines: int = Field(default=0, description="정기 업무 칸에 넣은 수(매일·매주·매월·분기·매년·수시)")
+    calendar_message: str = Field(default="", description="캘린더에 넣은 결과 안내")
+
+
+class HandoverCalendarResult(Result):
+    events: int = Field(description="새로 넣은 일정 수")
+    routines: int = Field(description="새로 넣은 정기 업무 수")
+    skipped: int = Field(description="이미 캘린더에 있어 건너뛴 수")
 
 
 class TransfersOut(Result):
@@ -1031,9 +1070,42 @@ class PlannerTodoOut(BaseModel):
     date: str | None
 
 
+class PlannerWeekTaskIn(_Stripped):
+    id: str | None = Field(default=None, pattern=PLANNER_KEY_PATTERN, description="주간 업무 id(선택). 같은 id 로 다시 보내면 있던 값을 돌려준다")
+    week: str = Field(description="그 주 일요일(YYYY-MM-DD). 다른 요일을 보내면 그 주 일요일로 맞춘다")
+    text: str = Field(min_length=1, max_length=200, description="주간 업무 내용")
+
+    @field_validator("week")
+    @classmethod
+    def _check_week(cls, value):
+        day = date.fromisoformat(_planner_date(value))
+        return (day - timedelta(days=(day.weekday() + 1) % 7)).isoformat()
+
+
+class PlannerWeekTaskOut(BaseModel):
+    id: str
+    week: str = Field(description="그 주 일요일")
+    text: str
+
+
+class PlannerWeekTaskResult(Result):
+    task: PlannerWeekTaskOut
+
+
+class PlannerRoutineOut(BaseModel):
+    id: str
+    cadence: str = Field(description="주기: daily | weekly | monthly | quarterly | yearly | other")
+    name: str = Field(description="업무명")
+    timing: str = Field(description="인수인계서에 적힌 수행 시기")
+    months: list[int] = Field(default_factory=list, description="분기·반기·매년 업무의 해당 월(비면 매달 또는 시기를 모름)")
+    source: str = Field(description="가져온 인수인계서")
+
+
 class PlannerOut(Result):
     events: list[PlannerEventOut] = Field(description="일정(추가한 순서)")
     todos: list[PlannerTodoOut] = Field(description="할 일(추가한 순서)")
+    routines: list[PlannerRoutineOut] = Field(default_factory=list, description="받은 인수인계서에서 가져온 정기 업무(주기별)")
+    week_tasks: list[PlannerWeekTaskOut] = Field(default_factory=list, description="주간 업무(주마다 직접 적은 일, 추가한 순서)")
 
 
 class PlannerEventResult(Result):
@@ -1053,3 +1125,104 @@ class PlannerImportIn(BaseModel):
 
 class PlannerCleared(Result):
     removed: int = Field(description="지운 할 일 수")
+
+
+# ---------------------------------------------------------------- 정기인사 일정(팀장이 등록)
+
+
+def _iso_date(value: str | None, *, required: bool) -> str | None:
+    value = (value or "").strip()
+    if not value:
+        if required:
+            raise ValueError("날짜를 입력해 주세요.")
+        return None
+    try:
+        return date.fromisoformat(value).isoformat()
+    except ValueError as exc:
+        raise ValueError("날짜는 YYYY-MM-DD 형식으로 입력해 주세요.") from exc
+
+
+class PersonnelScheduleIn(_Stripped):
+    name: str = Field(min_length=1, max_length=100, description="일정 이름(예: 2027 상반기 정기인사)")
+    announce_date: str | None = Field(default=None, description="발표일 YYYY-MM-DD(비워도 됨)")
+    appoint_date: str = Field(description="발령일 YYYY-MM-DD")
+
+    @field_validator("announce_date")
+    @classmethod
+    def _check_announce(cls, value):
+        return _iso_date(value, required=False)
+
+    @field_validator("appoint_date")
+    @classmethod
+    def _check_appoint(cls, value):
+        return _iso_date(value, required=True)
+
+    @model_validator(mode="after")
+    def _check_order(self):
+        if self.announce_date and self.announce_date > self.appoint_date:
+            raise ValueError("발표일은 발령일보다 늦을 수 없습니다.")
+        return self
+
+
+class PersonnelScheduleOut(BaseModel):
+    id: int
+    name: str
+    announce_date: str | None = Field(description="발표일(없으면 null)")
+    appoint_date: str = Field(description="발령일")
+    organization: str = Field(description="일정이 적용되는 소속(부서 팀)")
+    created_by: str = Field(description="등록한 사람")
+
+
+class PersonnelSchedulesOut(Result):
+    schedules: list[PersonnelScheduleOut] = Field(description="내 소속 일정(발령일 순)")
+    organization: str = Field(description="내 소속")
+    editable: bool = Field(description="관리자라서 추가·수정·삭제할 수 있는지")
+
+
+class PersonnelScheduleResult(Result):
+    schedule: PersonnelScheduleOut
+
+
+class TeamScheduleIn(_Stripped):
+    title: str = Field(min_length=1, max_length=100, description="일정 이름(예: 하반기 팀 워크숍)")
+    start_date: str = Field(description="시작일 YYYY-MM-DD")
+    end_date: str | None = Field(default=None, description="끝나는 날 YYYY-MM-DD(하루짜리면 비워 둠)")
+    memo: str = Field(default="", max_length=300, description="팀원에게 보여 줄 메모(장소·준비물 등)")
+
+    @field_validator("start_date")
+    @classmethod
+    def _check_start(cls, value):
+        return _iso_date(value, required=True)
+
+    @field_validator("end_date")
+    @classmethod
+    def _check_end(cls, value):
+        return _iso_date(value, required=False)
+
+    @model_validator(mode="after")
+    def _check_order(self):
+        if self.end_date and self.end_date < self.start_date:
+            raise ValueError("끝나는 날은 시작일보다 빠를 수 없습니다.")
+        if self.end_date == self.start_date:
+            self.end_date = None
+        return self
+
+
+class TeamScheduleOut(BaseModel):
+    id: int
+    title: str
+    start_date: str = Field(description="시작일")
+    end_date: str | None = Field(description="끝나는 날(하루짜리면 null)")
+    memo: str
+    organization: str = Field(description="일정이 적용되는 소속(부서 팀)")
+    created_by: str = Field(description="등록한 사람")
+
+
+class TeamSchedulesOut(Result):
+    schedules: list[TeamScheduleOut] = Field(description="내 소속 공유 일정(시작일 순)")
+    organization: str = Field(description="내 소속")
+    editable: bool = Field(description="관리자라서 추가·수정·삭제할 수 있는지")
+
+
+class TeamScheduleResult(Result):
+    schedule: TeamScheduleOut
