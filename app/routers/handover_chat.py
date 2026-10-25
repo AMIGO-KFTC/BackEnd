@@ -23,6 +23,7 @@ from ..services.container import Services
 from ..services.exporters import strip_citation_marks
 from .chat import _ensure_budget
 from .deps import as_utc, current_user, get_db, get_services
+from .handovers import duty_names
 
 router = APIRouter(prefix="/api/handover-chat", tags=["handover-chat"])
 
@@ -48,6 +49,17 @@ def _ready_sources(row: HandoverSession) -> int:
 def accessible_materials(db: Session, user: User) -> list[Material]:
     """질문할 수 있는 업무와 그 근거(최근 수정순). 같은 세션은 한 번만 나온다."""
     found: dict[str, Material] = {}
+    recipients: dict[str, list[str]] = {}  # 내 세션 → 전송한 인수자 이름(보낸 순서)
+    sent = db.execute(
+        select(HandoverTransfer.session_id, User.name)
+        .join(User, User.id == HandoverTransfer.recipient_id)
+        .where(HandoverTransfer.sender_id == user.id)
+        .order_by(HandoverTransfer.created_at)
+    ).all()
+    for session_id, name in sent:
+        names = recipients.setdefault(session_id or "", [])
+        if name not in names:
+            names.append(name)
     for row in db.scalars(select(HandoverSession).where(HandoverSession.user_id == user.owner_key)):
         sources = _ready_sources(row)
         if not row.document_md and not sources:
@@ -55,7 +67,7 @@ def accessible_materials(db: Session, user: User) -> list[Material]:
         scope = HandoverChatScope(
             id=row.id, title=row.title or row.task_name or "인수인계", task_name=row.task_name, owner_name=row.owner_name, kind="mine",
             version=row.document_version if row.document_md else 0, has_document=bool(row.document_md), source_count=sources,
-            session_id=row.id, updated_at=as_utc(row.updated_at),
+            session_id=row.id, updated_at=as_utc(row.updated_at), duties=duty_names(row), recipients=recipients.get(row.id, []),
         )
         found[row.id] = Material(scope, _doc_text(row.document_md), row.id if sources else None)
     for t in db.scalars(select(HandoverTransfer).where(HandoverTransfer.recipient_id == user.id)):
@@ -64,12 +76,14 @@ def accessible_materials(db: Session, user: User) -> list[Material]:
             scope = HandoverChatScope(
                 id=row.id, title=row.title or row.task_name or "인수인계", task_name=row.task_name, owner_name=row.owner_name, kind="received",
                 version=row.document_version, has_document=True, source_count=0, session_id=row.id, updated_at=as_utc(row.updated_at),
+                duties=duty_names(row),
             )
             found.setdefault(row.id, Material(scope, _doc_text(row.document_md), None))
         elif row is None and t.markdown:  # 인계자가 지웠으면 보낸 시점 문서
             scope = HandoverChatScope(
                 id=f"transfer:{t.id}", title=t.title, task_name=t.task_name, owner_name=t.sender_name, kind="received",
                 version=t.document_version, has_document=True, source_count=0, session_id=None, updated_at=as_utc(t.created_at),
+                duties=[t.task_name] if t.task_name else [],
             )
             found[scope.id] = Material(scope, _doc_text(t.markdown), None)
     return sorted(found.values(), key=lambda m: m.scope.updated_at, reverse=True)

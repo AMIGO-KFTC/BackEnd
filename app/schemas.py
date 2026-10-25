@@ -621,6 +621,7 @@ class ReceivedHandoverOut(BaseModel):
     id: str = Field(description="세션 ID. 문서는 GET /api/sessions/{id}/document, PDF 는 /download 로 읽는다")
     title: str
     task_name: str
+    duties: list[str] = Field(default_factory=list, description="이 인수인계서에 담긴 담당 업무 이름(한 건에 여러 업무가 들어갈 수 있다). 받은 인수인계 화면의 업무별 검색에 쓴다")
     mode: str
     owner_name: str
     owner_login_id: str = ""
@@ -970,6 +971,8 @@ class HandoverChatScope(BaseModel):
     source_count: int = Field(description="질문 근거가 되는 올린 자료 수(분석이 끝난 파일·링크·메일). 받은 인수인계는 항상 0")
     session_id: str | None = Field(description="화면에서 열 수 있는 세션 ID(지워졌으면 null)")
     updated_at: datetime
+    duties: list[str] = Field(default_factory=list, description="인수인계서에 담긴 담당 업무 이름(챗봇 화면의 업무 검색에 쓴다)")
+    recipients: list[str] = Field(default_factory=list, description="내 업무(mine)를 전송한 인수자 이름. 받은 인수인계는 빈 목록")
 
 
 class HandoverChatScopesOut(BaseModel):
@@ -1226,3 +1229,24 @@ class TeamSchedulesOut(Result):
 
 class TeamScheduleResult(Result):
     schedule: TeamScheduleOut
+
+
+class NotificationOut(BaseModel):
+    id: str = Field(description="알림 ID('transfer:<전송 ID>:v<문서 버전>')")
+    kind: Literal["received", "updated"] = Field(description="received: 새 인수인계서 도착, updated: 인계자가 보낸 뒤 문서를 고침")
+    session_id: str | None = Field(default=None, description="문서를 열 세션(인계자가 지웠으면 null)")
+    title: str
+    text: str
+    sender_name: str = ""
+    task_name: str = ""
+    created_at: datetime
+    read: bool
+
+
+class NotificationsOut(Result):
+    notifications: list[NotificationOut]
+    unread: int = 0
+
+
+class NotificationIdsIn(BaseModel):
+    ids: list[str] | None = Field(default=None, max_length=200, description="대상 알림 ID. null 이면 모든 알림")

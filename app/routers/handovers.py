@@ -59,11 +59,22 @@ def latest_versions(db: Session, session_ids: list[str]) -> dict[str, DocumentVe
     return {v.session_id: v for v in rows}
 
 
+def duty_names(row: HandoverSession) -> list[str]:
+    """세션의 담당 업무 이름 목록. duties 는 한 줄에 업무 하나('업무명' 또는 '업무명: 설명')이고, 단위 업무명(task_name)을 맨 앞에 둔다."""
+    names: list[str] = [row.task_name.strip()] if row.task_name and row.task_name.strip() else []
+    for line in (row.duties or "").splitlines():
+        name = line.split(": ", 1)[0].strip()
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
 def received_out(row: HandoverSession, owner_login_id: str = "", latest: DocumentVersion | None = None) -> ReceivedHandoverOut:
     return ReceivedHandoverOut(
         id=row.id,
         title=row.title,
         task_name=row.task_name,
+        duties=duty_names(row),
         mode=row.mode or "reassignment",
         owner_name=row.owner_name,
         owner_login_id=owner_login_id,
