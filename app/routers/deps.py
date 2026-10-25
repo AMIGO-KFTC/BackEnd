@@ -164,6 +164,7 @@ def detail(db: Session, row: HandoverSession) -> SessionDetail:
         duties=row.duties,
         units=row.units,
         owner_login_id=owner_login_id(db, row),
+        form=row.form or "standard",
         progress=Progress(message=row.progress_message, current=row.progress_current, total=row.progress_total),
         error=row.error,
         engine=row.engine,

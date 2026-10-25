@@ -24,6 +24,17 @@ DEFAULT_WELCOME = (
 )
 
 
+def handover_form_for(db: Session, user_id: str) -> str:
+    """세션 소유자(user:N)가 팀장(관리자)이면 원내 양식(office), 아니면 기본 양식(standard). 로그인 없이 만든 세션은 기본 양식."""
+    if not user_id.startswith("user:"):
+        return "standard"
+    try:
+        user = db.get(User, int(user_id.split(":", 1)[1]))
+    except ValueError:
+        return "standard"
+    return "office" if user is not None and user.is_admin else "standard"
+
+
 def new_handover_session(
     db: Session,
     *,
@@ -42,8 +53,9 @@ def new_handover_session(
     task_name: str = "",
     units: list[dict[str, Any]] | None = None,
     welcome: str = DEFAULT_WELCOME,
+    form: str | None = None,
 ) -> HandoverSession:
-    """인수인계 세션과 첫 안내 메시지를 만든다(커밋은 호출한 쪽에서)."""
+    """인수인계 세션과 첫 안내 메시지를 만든다(커밋은 호출한 쪽에서). form 을 안 주면 소유자 계정으로 정한다(팀장이면 원내 양식)."""
     row = HandoverSession(
         id=uuid.uuid4().hex,
         user_id=user_id,
@@ -61,6 +73,7 @@ def new_handover_session(
         mode=mode,
         task_name=task_name,
         units_json=json.dumps(units or [], ensure_ascii=False),
+        form=form or handover_form_for(db, user_id),
     )
     db.add(row)
     content = f"안녕하세요, {owner_name}님. 인수인계서 작성을 도와드릴 AMIGO 입니다.\n{welcome}"

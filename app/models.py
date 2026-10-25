@@ -156,6 +156,8 @@ class HandoverSession(Base):
     task_name: Mapped[str] = mapped_column(String(200), default="")  # 단위 업무명
     # 단위업무와 세부업무: [{"name": 단위업무명, "regular": [정기 세부업무], "irregular": [비정기 세부업무]}]. 장기휴가는 이름을 비운 1건
     units_json: Mapped[str] = mapped_column(Text, default="[]")
+    # 인수인계서 양식: standard(기본 양식) | office(원내 양식, 팀장이 작성하는 인수인계). 세션을 만들 때 정하고 이후 관리자 권한이 바뀌어도 그대로 둔다
+    form: Mapped[str] = mapped_column(String(20), default="standard")
 
     # 진행 상태: stage 는 에이전트 단계(setup → analyzing → summary → qna → composing → review)
     stage: Mapped[str] = mapped_column(String(20), default="setup")
@@ -205,6 +207,7 @@ class HandoverSession(Base):
             "mode": self.mode or "reassignment",
             "task_name": self.task_name,
             "units": self.units,
+            "form": self.form or "standard",  # "office" 면 AI 가 원내 양식으로 인수인계서를 만든다
         }
 
     @property

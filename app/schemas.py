@@ -368,6 +368,7 @@ class SessionDetail(SessionSummary):
     duties: str
     units: list[UnitOut] = Field(default_factory=list, description="인계자 정보에서 고른 단위업무와 세부업무(정기·비정기). 예전 세션은 빈 목록")
     owner_login_id: str = Field(default="", description="인계자(세션을 만든 로그인 계정)의 아이디. 로그인 없이 만든 세션이면 빈 값")
+    form: str = Field(default="standard", description="인수인계서 양식: standard(기본 양식) | office(원내 양식, 팀장이 만든 세션)")
     viewer: Literal["owner", "recipient", "team", ""] = Field(
         default="", description="지금 보는 계정과 이 세션의 관계: owner(인계자) | recipient(전송받은 사람) | team(같은 팀 팀장) | 빈 값(로그인 없이 만든 세션)"
     )
