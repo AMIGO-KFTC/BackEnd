@@ -31,6 +31,26 @@ QUICK_REPLIES_CONFIRM = ["네, 맞아요", "수정할게요"]
 YES = ("네", "예", "맞아요", "맞습니다", "응", "ok", "okay", "좋아요")
 SKIP = ("모르겠어요", "건너뛰기", "건너뛸게요", "해당 없음", "없어요")
 FINISH = ("지금 문서 생성", "문서 생성", "문서 만들어", "인수인계서 생성")
+QUICK_REPLIES_YESNO = ["예", "아니요"]
+PERIOD_CHOICES = ("매일", "매주", "매월", "매년")
+AUX_NOTE = "꼭 답하지 않아도 돼요. 알고 계시면 적어 주세요."
+NO = ("아니요", "아니오", "아뇨", "아니", "없어요", "없습니다", "없음")
+
+
+def _is_no(text: str) -> bool:
+    return text.strip().rstrip(".!").lower() in NO
+
+
+def _question_meta(gap: dict) -> dict[str, Any]:
+    """질문 메시지의 meta: 예/아니요(choice) · 주기·기간 선택(picker) · 보조질문(aux) 표시는 실제 에이전트(nodes.ask)와 같다."""
+    meta: dict[str, Any] = {"quick_replies": QUICK_REPLIES_QNA, "allow_files": True}
+    if gap.get("gate"):
+        meta.update(quick_replies=QUICK_REPLIES_YESNO, allow_files=False, choice="yesno")
+    if gap.get("picker") == "period":
+        meta.update(picker="period", choices=list(PERIOD_CHOICES), allow_files=False)
+    if gap.get("aux"):
+        meta.update(aux=True, aux_note=AUX_NOTE)
+    return meta
 
 
 class MockAgent:
@@ -78,8 +98,9 @@ class MockAgent:
                     continue
                 gap_id = f"gap-{i + 1:02d}"
                 st["gap_meta"][gap_id] = g
-                st["gaps"].append({"id": gap_id, "slot": g["slot"], "item_id": self._item_id(st, g), "description": g["description"],
-                                   "question": g["question"], "priority": g["priority"], "rank": i + 1, "status": "open"})
+                st["gaps"].append({"id": gap_id, "slot": g["slot"], "item_id": self._item_id(st, g), "field": g["field"], "description": g["description"],
+                                   "question": g["question"], "priority": g["priority"], "rank": i + 1, "status": "open",
+                                   **{k: g[k] for k in ("gate", "follow", "aux", "picker") if g.get(k)}})
             emit.progress("자료 분석을 마쳤어요.", current=len(active), total=len(active))
             emit.stage("summary")
             self._sleep()
@@ -102,8 +123,13 @@ class MockAgent:
                 if _is_yes(text):
                     return self._resolve(st, emit)
                 return self._answer(st, emit, text, correcting=True)
+            gap = self._current_gap(st)
+            if gap is not None and gap.get("gate") and (_is_yes(text) or _is_no(text)):
+                return self._answer_gate(st, emit, gap, _is_yes(text))
             if any(p in text for p in SKIP):
                 return self._skip(st, emit)
+            if gap is not None and gap.get("picker") == "period" and (text in PERIOD_CHOICES or "~" in text):
+                return self._answer_period(st, emit, gap, text)
             return self._answer(st, emit, text)
 
     def skip(self, thread_id: str, kb: Any, on_event: EventHandler = None) -> None:
@@ -130,6 +156,8 @@ class MockAgent:
             for g in st["gaps"]:
                 if g["status"] == "asked":
                     g["status"] = "open"  # 지금 묻던 질문은 이 질문 다음에 다시 묻는다
+            if target.get("first"):  # 예/아니요로 시작한 질문은 처음 질문부터 다시 묻는다
+                target.update(target.pop("first"))
             target["status"] = "open"
             st["force_gap"] = gap_id  # 고른 질문을 먼저 묻는다(목록 순서·번호는 그대로)
             st["pending"] = {}
@@ -237,7 +265,7 @@ class MockAgent:
                 emit.stage("qna")
             content = (ack + "\n\n" if ack else "") + gap["question"]  # 장 이름은 meta.slot 으로 화면 태그에 표시되므로 본문에 붙이지 않는다
             emit.say("question", content, gap_id=gap["id"], slot=gap["slot"], number=st["question_count"],
-                     remaining=len(open_gaps) - 1, quick_replies=QUICK_REPLIES_QNA, allow_files=True)
+                     remaining=len(open_gaps) - 1, **_question_meta(gap))
             st["waiting"] = True
             return
         text = "질문을 모두 마쳤어요. 건너뛴 내용은 화면 오른쪽 '확인 필요 사항'에 남겨 두고 인수인계서를 작성할게요."
@@ -250,7 +278,7 @@ class MockAgent:
             return self._next(st, emit)
         emit.say("question", gap["question"], gap_id=gap["id"], slot=gap["slot"],
                  number=st["question_count"], remaining=sum(1 for g in st["gaps"] if g["status"] == "open"),
-                 quick_replies=QUICK_REPLIES_QNA, allow_files=True)
+                 **_question_meta(gap))
         st["waiting"] = True
 
     def _answer(self, st: dict, emit: _Emitter, text: str, correcting: bool = False) -> None:
@@ -274,6 +302,35 @@ class MockAgent:
         emit.say("confirm", f"{lead}\n\n**[{spec.title}] {item_label(spec, item)}**\n- **{spec.label(field)}**: {text}\n\n맞으면 '네', 고칠 부분이 있으면 말씀해 주세요.",
                  quick_replies=QUICK_REPLIES_CONFIRM, refs=[[gap["slot"], item["id"]]])
         st["waiting"] = True
+
+    def _answer_gate(self, st: dict, emit: _Emitter, gap: dict, yes: bool) -> None:
+        """예/아니요 질문: ask 는 예면 이어지는 주관식 질문, 아니요면 '해당 없음' / confirm 은 예면 확인 끝, 아니요면 주관식 질문."""
+        follow = (gap["gate"] == "ask") == yes
+        gap.setdefault("first", {"question": gap["question"], "gate": gap["gate"], "picker": ""})
+        if follow:
+            gap.update(gate="", question=gap.get("follow") or gap["question"], status="open")
+            st["force_gap"] = gap["id"]
+            st["question_count"] -= 1
+            return self._next(st, emit)
+        ack = "확인했어요."
+        if gap["gate"] == "ask" and gap["slot"] not in ("partners", "stakeholders"):
+            item = self._ensure_item(st, gap)
+            item["fields"][st["gap_meta"][gap["id"]]["field"]] = "해당 없음"
+            self._recount(st, gap["slot"])
+            emit.slot(gap["slot"], st["slots"][gap["slot"]])
+            ack = f"'{SLOT_BY_KEY[gap['slot']].label(st['gap_meta'][gap['id']]['field'])}'은(는) '해당 없음'으로 기록했어요."
+        gap["status"] = "resolved"
+        self._next(st, emit, ack=ack)
+
+    def _answer_period(self, st: dict, emit: _Emitter, gap: dict, text: str) -> None:
+        """수행 시기 선택: 주기(매일·매주·매월·매년) 또는 달력에서 고른 기간('2026-03-02 ~ 2026-05-29')을 바로 기록한다."""
+        item = self._ensure_item(st, gap)
+        item["fields"]["timing"] = f"수행 주기: {text} 수행함." if text in PERIOD_CHOICES else f"비정기 수행(기간: {text.replace('-', '.')})함."
+        item["origin"] = "user"
+        self._recount(st, gap["slot"])
+        emit.slot(gap["slot"], st["slots"][gap["slot"]])
+        gap["status"] = "resolved"
+        self._next(st, emit, ack=f"수행 시기를 '{text}'로 기록했어요.")
 
     def _resolve(self, st: dict, emit: _Emitter) -> None:
         gap = self._current_gap(st)
@@ -323,8 +380,13 @@ class MockAgent:
     # ------------------------------------------------------------------ 데이터 만들기
     def _build_slot(self, key: str, st: dict, kb: Any = None) -> dict[str, Any]:
         task = st["profile"].get("task_name") or st["profile"].get("duties") or "담당 업무"
+        raws = scenario.ITEMS.get(key, [])
+        # 인계자 정보에서 단위업무를 골랐으면 업무 단위 요약의 업무명을 그 단위업무로 쓴다(기간·진행상황은 시나리오 값을 돌려 쓴다)
+        unit_names = [u["name"] for u in st["profile"].get("units") or [] if u.get("name")]
+        if key == "overview" and unit_names and raws:
+            raws = [{**raws[i % len(raws)], "fields": {**raws[i % len(raws)]["fields"], "name": name}} for i, name in enumerate(unit_names)]
         items = []
-        for i, raw in enumerate(scenario.ITEMS.get(key, [])):
+        for i, raw in enumerate(raws):
             fields = {k: v.replace("{task_name}", task) for k, v in raw["fields"].items()}
             item = {"id": f"{key}-{i + 1:02d}", "title": fields.get(SLOT_BY_KEY[key].title_field, ""), "fields": fields,
                     "citations": [self._citation(st, raw["doc"], fields, i, kb)], "origin": "document", "confirmed": False}

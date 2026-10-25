@@ -662,6 +662,7 @@ RAG 메일 파서가 보낸 사람·받는 사람·일시·제목을 출처 표�
 | 메서드 | 경로 | 설명 |
 |---|---|---|
 | GET | `/api/members` | 프로필을 입력한 모든 계정(인수자 선택 목록). 로그인 필요 |
+| GET | `/api/org-duties` | 직제규정 시행세칙(가상 예시): 본부·부 → 팀 → 단위업무 목록(인계자 정보 입력 화면의 본부·팀·단위 업무 선택용). 로그인 필요. 실제 업무분장은 같은 모양의 JSON 을 `AMIGO_ORG_DUTIES_FILE` 에 적는다(`app/resources/org_duties.json` 참고) |
 | GET | `/api/handovers/received` | 내가 인수자(`successor_login_id`)인 인수인계 목록(최근 순) |
 | GET | `/api/admin/members` | 우리 팀(관리자와 같은 소속) 구성원과 인수인계 건수. 관리자가 아니면 `403`, 프로필이 없으면 `400` |
 | GET | `/api/admin/handovers` | 우리 팀 구성원이 인계자인 인수인계 목록(인수자·질문 수·남은 항목 포함) |
@@ -710,7 +711,7 @@ AI 쪽(`AI/src/amigo_agent/prompts.py` 의 `team_guidelines_block`)이 이를 �
 | GET | `/api/health` | 서버 상태와 연동 점검: `status`(`ok`/`degraded`), AI 엔진·모델, `checks.db`(연결), `checks.rag`(저장소 쓰기·임베딩 방식), `checks.ai`(API 키 유무·예산) |
 | GET | `/api/usage` | Claude API 누적 사용량(요청 수·토큰·추정 비용)과 예산·남은 금액 |
 | GET | `/api/config` | 업로드 제한·허용 확장자, 링크 유형, **인수인계서 양식(슬롯)**, 단계 정의 |
-| POST | `/api/sessions` | 세션 생성(인계자 기초 정보: 성명·소속·직책·담당 업무·인수자·인계일) |
+| POST | `/api/sessions` | 세션 생성(인계자 기초 정보: 성명·소속·직책·담당 업무·인수자·인계일). `units`: 단위업무별 세부업무 `[{name, regular: [정기], irregular: [비정기]}]`(장기휴가는 이름을 비운 1건). 세션 응답·AI 인계자 정보(`profile.units`)에도 그대로 실린다 |
 | GET | `/api/sessions` | 세션 목록(로그인했으면 계정 기준, 아니면 `X-User-Id` 헤더 기준) |
 | GET | `/api/sessions/{id}` | 세션 상세: 단계·상태·진행률·슬롯 충족 현황·공백·자료 목록 |
 | GET | `/api/sessions/{id}/state?after=<메시지ID>` | **폴링용**: 세션 상세 + 커서 이후 새 메시지 |

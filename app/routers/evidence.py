@@ -40,7 +40,8 @@ def _rendered_slots(row: HandoverSession) -> list:
     """번호를 매길 장 목록. 문서가 있으면 문서에 실제로 들어간 장(작성 당시의 인계 유형)을 따른다."""
     if row.document_md:
         headings = set(re.findall(r"^## \d+\. (.+?)\s*$", row.document_md, re.M))
-        rendered = [spec for spec in SLOTS if spec.title in headings]
+        subheadings = set(re.findall(r"^### (.+?)\s*$", row.document_md, re.M))  # 한 장 아래 소제목으로 묶인 장(기타 자료: 시스템 접근 권한 · 부서별 추가 자료)
+        rendered = [spec for spec in SLOTS if spec.title in headings or (spec.group in headings and spec.title in subheadings)]
         if rendered:
             return rendered
     return list(slots_for(row.profile()))
