@@ -227,11 +227,32 @@ class UnitTasksResult(Result):
 
 
 
+class UnitIn(BaseModel):
+    """인계자 정보의 단위업무 1건과 그 세부업무(정기·비정기). 장기휴가는 단위업무 없이 이름을 비운 1건에 세부업무만 담는다."""
+
+    name: str = Field(default="", max_length=200, description="단위업무명(직제규정 시행세칙의 업무분장 또는 직접 추가). 장기휴가는 빈 값")
+    regular: list[str] = Field(default_factory=list, max_length=50, description="정기 세부업무")
+    irregular: list[str] = Field(default_factory=list, max_length=50, description="비정기(프로젝트성) 세부업무")
+
+    @field_validator("name")
+    @classmethod
+    def _strip_name(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("regular", "irregular")
+    @classmethod
+    def _clean_items(cls, values: list[str]) -> list[str]:
+        items = [v.strip() for v in values if v.strip()]
+        if any(len(v) > 200 for v in items):
+            raise ValueError("세부업무는 200자 이하로 입력해 주세요.")
+        return items
+
+
 class SessionCreate(BaseModel):
     owner_name: str = Field(min_length=1, max_length=50, description="인계자 성명")
     organization: str = Field(default="", max_length=100, description="소속 조직")
     position: str = Field(default="", max_length=50, description="직책")
-    duties: str = Field(default="", max_length=2000, description="담당 업무 개요")
+    duties: str = Field(default="", max_length=8000, description="담당 업무 개요(단위업무별 정기·비정기 세부업무를 풀어 쓴 글)")
     successor: str = Field(default="", max_length=100, description="인수자")
     successor_login_id: str = Field(default="", max_length=50, description="인수자의 로그인 아이디(이 시스템 계정이면). 그 계정의 '받은 인수인계'에 나타난다")
     handover_date: str = Field(default="", max_length=20, description="인계 예정일(YYYY-MM-DD)")
@@ -240,11 +261,21 @@ class SessionCreate(BaseModel):
     title: str = Field(default="", max_length=200)
     mode: Literal["reassignment", "leave"] = Field(default="reassignment", description="인수인계 유형: reassignment=인사발령, leave=장기휴가")
     task_name: str = Field(default="", max_length=200, description="단위 업무명(업무 단위별로 인수인계서 1건)")
+    units: list[UnitIn] = Field(
+        default_factory=list,
+        max_length=30,
+        description="단위업무와 세부업무(정기·비정기). 인사발령은 고른 단위업무마다 1건, 장기휴가는 이름을 비운 1건. 이름도 세부업무도 없는 건은 버린다",
+    )
 
     @field_validator("owner_name", "organization", "position", "duties", "successor", "successor_login_id", "handover_date", "leave_start", "leave_end", "title", "task_name")
     @classmethod
     def _strip(cls, value: str) -> str:
         return value.strip()
+
+    @field_validator("units")
+    @classmethod
+    def _drop_empty_units(cls, units: list[UnitIn]) -> list[UnitIn]:
+        return [u for u in units if u.name or u.regular or u.irregular]
 
     @model_validator(mode="after")
     def _leave_period(self) -> "SessionCreate":
@@ -327,8 +358,15 @@ class UsageTotal(Usage):
     remaining_usd: float | None = None
 
 
+class UnitOut(BaseModel):
+    name: str = ""
+    regular: list[str] = Field(default_factory=list)
+    irregular: list[str] = Field(default_factory=list)
+
+
 class SessionDetail(SessionSummary):
     duties: str
+    units: list[UnitOut] = Field(default_factory=list, description="인계자 정보에서 고른 단위업무와 세부업무(정기·비정기). 예전 세션은 빈 목록")
     owner_login_id: str = Field(default="", description="인계자(세션을 만든 로그인 계정)의 아이디. 로그인 없이 만든 세션이면 빈 값")
     progress: Progress
     error: str
@@ -1008,6 +1046,25 @@ class HandoverChatOut(BaseModel):
     sources: list[HandoverChatSource] = Field(description="답에 근거로 쓴 자료")
     searched: int = Field(description="질문과 관련 있다고 찾은 근거 조각 수")
     engine: str = Field(description="답한 엔진: claude | offline | mock")
+
+
+# ---------------------------------------------------------------- 직제규정 시행세칙(업무분장)
+
+
+class OrgTeamOut(BaseModel):
+    name: str
+    duties: list[str] = Field(description="이 팀의 단위업무(업무분장상 단위업무)")
+
+
+class OrgDivisionOut(BaseModel):
+    name: str = Field(description="본부·부")
+    teams: list[OrgTeamOut]
+
+
+class OrgDutiesResult(Result):
+    title: str = Field(description="자료 이름(예: 직제규정 시행세칙(가상 예시))")
+    note: str = ""
+    divisions: list[OrgDivisionOut]
 
 
 # ---------------------------------------------------------------- 캘린더 일정 · 할 일(계정별)

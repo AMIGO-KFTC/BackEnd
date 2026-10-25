@@ -108,7 +108,7 @@ class JobRunner:
             guidelines = guidelines_for(db, row.organization)  # 팀 관리자가 정한 인수인계서 지침(없으면 None)
             if guidelines:
                 profile["team_guidelines"] = guidelines
-            dept_notes = department_notes_for(row.organization)  # 부서별 특이사항(없으면 None): 분석·질문·대화에 반영한다
+            dept_notes = department_notes_for(row.organization)  # 부·팀 인수인계 목록(없으면 None): 분석·질문·대화에 반영한다
             if dept_notes:
                 profile["dept_notes"] = dept_notes
         kb, agent = self.services.kb(session_id), self.services.agent
@@ -132,7 +132,7 @@ class JobRunner:
         self._drain_pending_files(session_id)
 
     def _refresh_agent_profile(self, session_id: str) -> None:
-        """진행 중인 대화의 인계자 정보에 팀 지침(팀장 프롬프트 포함)과 부서 특이사항의 최신 값을 반영한다. 지침을 지웠으면 None 으로 지운다."""
+        """진행 중인 대화의 인계자 정보에 팀 지침(팀장 프롬프트 포함)과 부·팀 인수인계 목록의 최신 값을 반영한다. 지침을 지웠으면 None 으로 지운다."""
         with self.services.db() as db:
             row = db.get(HandoverSession, session_id)
             if row is None:

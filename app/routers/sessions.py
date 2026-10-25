@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -38,13 +40,15 @@ def new_handover_session(
     title: str = "",
     mode: str = "reassignment",
     task_name: str = "",
+    units: list[dict[str, Any]] | None = None,
     welcome: str = DEFAULT_WELCOME,
 ) -> HandoverSession:
     """인수인계 세션과 첫 안내 메시지를 만든다(커밋은 호출한 쪽에서)."""
     row = HandoverSession(
         id=uuid.uuid4().hex,
         user_id=user_id,
-        title=title or (f"{owner_name} · {task_name} 인수인계" if task_name else " ".join(x for x in (owner_name, position) if x) + " 인수인계"),
+        # 단위업무를 여러 개 고르면 task_name 이 길어지므로 제목 칸(200자)에 맞춰 자른다
+        title=(title or (f"{owner_name} · {task_name} 인수인계" if task_name else " ".join(x for x in (owner_name, position) if x) + " 인수인계"))[:200],
         owner_name=owner_name,
         organization=organization,
         position=position,
@@ -56,6 +60,7 @@ def new_handover_session(
         leave_end=leave_end,
         mode=mode,
         task_name=task_name,
+        units_json=json.dumps(units or [], ensure_ascii=False),
     )
     db.add(row)
     content = f"안녕하세요, {owner_name}님. 인수인계서 작성을 도와드릴 AMIGO 입니다.\n{welcome}"

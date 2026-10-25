@@ -154,6 +154,8 @@ class HandoverSession(Base):
     leave_end: Mapped[str] = mapped_column(String(10), default="")  # 장기휴가 종료일(YYYY-MM-DD)
     mode: Mapped[str] = mapped_column(String(20), default="reassignment")  # reassignment(인사발령) | leave(장기휴가)
     task_name: Mapped[str] = mapped_column(String(200), default="")  # 단위 업무명
+    # 단위업무와 세부업무: [{"name": 단위업무명, "regular": [정기 세부업무], "irregular": [비정기 세부업무]}]. 장기휴가는 이름을 비운 1건
+    units_json: Mapped[str] = mapped_column(Text, default="[]")
 
     # 진행 상태: stage 는 에이전트 단계(setup → analyzing → summary → qna → composing → review)
     stage: Mapped[str] = mapped_column(String(20), default="setup")
@@ -202,7 +204,23 @@ class HandoverSession(Base):
             "leave_end": self.leave_end,
             "mode": self.mode or "reassignment",
             "task_name": self.task_name,
+            "units": self.units,
         }
+
+    @property
+    def units(self) -> list[dict[str, Any]]:
+        """단위업무와 세부업무 목록. 예전 세션이거나 값이 깨졌으면 빈 목록."""
+        try:
+            rows = json.loads(self.units_json or "[]")
+        except ValueError:
+            return []
+        if not isinstance(rows, list):
+            return []
+        return [
+            {"name": str(r.get("name") or ""), "regular": [str(x) for x in r.get("regular") or []], "irregular": [str(x) for x in r.get("irregular") or []]}
+            for r in rows
+            if isinstance(r, dict)
+        ]
 
     @property
     def slots(self) -> dict[str, Any]:

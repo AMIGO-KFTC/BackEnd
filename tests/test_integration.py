@@ -59,7 +59,7 @@ def test_unit_task_flow_with_real_rag_and_agent(client, sample_dir):
     upload(client, full["id"], sample_dir)
     assert wait_question(client, sid)["next_action"] == "answer_question"
     session = client.get(f"/api/sessions/{sid}").json()
-    assert set(session["slots"]) == {"overview", "regular", "partners", "irregular", "stakeholders", "systems", "dept_notes"}
+    assert set(session["slots"]) == {"overview", "regular", "partners", "irregular", "milestones", "stakeholders", "systems", "dept_notes"}
     assert all(s["status"] == "ready" and s["chunk_count"] > 0 for s in session["sources"])
 
     # 장기휴가: 3개 장만(세부 업무·시스템 접근 권한·주요 연락망)
