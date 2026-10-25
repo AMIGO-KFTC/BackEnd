@@ -121,7 +121,7 @@ def test_admin_scope_is_own_team(client):
     assert [h["id"] for h in handovers] == [session_id]
     assert handovers[0]["owner_login_id"] == "demo" and handovers[0]["successor"] == "임윤희 계장" and handovers[0]["successor_login_id"] == "yunhui"
     assert client.get(f"/api/sessions/{session_id}/state").status_code == 200  # 같은 팀 구성원의 세션은 읽을 수 있다
-    assert client.post(f"/api/sessions/{session_id}/chat", json={"text": "안녕"}).status_code == 404
+    assert client.post(f"/api/sessions/{session_id}/chat", json={"text": "안녕"}).status_code == 403  # 팀장은 검토만(작성 API 는 403)
 
     login(client, "aiteamjang")  # 다른 팀 관리자에게는 보이지 않는다
     assert [m["login_id"] for m in client.get("/api/admin/members").json()["members"]] == ["aiteamjang", "yunhui"]

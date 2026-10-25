@@ -1,6 +1,6 @@
 r"""시연용 계정과 인수인계 관계를 실제 DB(data/app.db 또는 AMIGO_DATABASE_URL)에 넣는다. 여러 번 실행해도 같은 상태가 된다.
 
-    .venv\Scripts\python.exe scripts\seed_accounts.py            # 계정·프로필·역할을 맞추고 인수인계 2건을 만든다
+    .venv\Scripts\python.exe scripts\seed_accounts.py            # 계정·프로필·역할을 맞추고 인수인계를 만든다
     .venv\Scripts\python.exe scripts\seed_accounts.py --clean    # + 시드 계정의 빈 인수인계(자료·문서 없음)를 지운다
 
 계정(아이디 / 비밀번호)
@@ -13,7 +13,8 @@ r"""시연용 계정과 인수인계 관계를 실제 DB(data/app.db 또는 AMIG
 인수인계(인계자 → 인수자)
   계장 김민준 → 계장 임윤희   AMIGO 인수인계 서비스 운영 · 협력사 유지보수 계약 관리
   계장 임윤희 → 계장 최환     AI 모델 평가 파이프라인 관리 · 임베딩 서버 운영
-  팀장 김미고 → 팀장 최고미   IT아미고팀 운영 총괄 · 연간 정보화 예산 관리
+팀장(관리자)은 인수인계서를 쓰지 않고 팀원 것을 검토만 한다(서버가 작성 API 를 403 으로 막는다).
+예전 시드가 만든 팀장 인수인계(김미고 → 최고미)는 실행할 때 지운다.
 """
 
 from __future__ import annotations
@@ -50,9 +51,12 @@ HANDOVERS = [
     # 계장 임윤희 → 계장 최환
     ("yunhui", "AI 모델 평가 파이프라인 관리", "평가 데이터셋 관리, 주간 품질 리포트, 모델 교체 전 회귀 검증", "hwan", "2026-11-21"),
     ("yunhui", "임베딩 서버 운영", "임베딩 API 서버 배포·용량 관리, 장애 대응 연락망 유지", "hwan", "2026-11-21"),
-    # 팀장 김미고 → 팀장 최고미
-    ("amigoteamjang", "IT아미고팀 운영 총괄", "팀 업무 분장·주간 회의 주재, 본부 보고, 외부 기관 협의 창구", "aiteamjang", "2026-12-01"),
-    ("amigoteamjang", "연간 정보화 예산 관리", "정보화 예산 편성·집행 점검, 분기 결산 보고, 계약 심의 참석", "aiteamjang", "2026-12-01"),
+]
+
+# 예전 시드가 팀장 계정에 만든 인수인계(인계자 아이디, 단위업무명). 팀장은 검토 전용이 되어 지운다.
+RETIRED_HANDOVERS = [
+    ("amigoteamjang", "IT아미고팀 운영 총괄"),
+    ("amigoteamjang", "연간 정보화 예산 관리"),
 ]
 
 
@@ -95,6 +99,21 @@ def clean_empty_sessions(db: Session, users: dict[str, User]) -> None:
     db.flush()
 
 
+def remove_retired_handovers(db: Session, users: dict[str, User]) -> None:
+    """팀장(관리자) 계정이 가진 예전 시드 인수인계를 지운다(자료·대화·문서 버전은 ORM cascade 로 함께)."""
+    for owner_id, name in RETIRED_HANDOVERS:
+        owner = users[owner_id]
+        task = db.scalar(select(UnitTask).where(UnitTask.user_id == owner.id, UnitTask.name == name))
+        if task is None:
+            continue
+        row = task.session
+        db.delete(task)
+        if row is not None:
+            db.delete(row)
+        print(f"팀장 인수인계 삭제  {owner.name}: {name}")
+    db.flush()
+
+
 def upsert_handovers(db: Session, users: dict[str, User]) -> None:
     from app.routers.sessions import new_handover_session
     from app.routers.unit_tasks import _duties, _welcome
@@ -131,6 +150,7 @@ def main() -> None:
         users = upsert_accounts(db)
         if "--clean" in sys.argv:
             clean_empty_sessions(db, users)
+        remove_retired_handovers(db, users)
         upsert_handovers(db, users)
         db.commit()
     print("완료")

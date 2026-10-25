@@ -9,13 +9,14 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import DocumentVersion, HandoverSession, HandoverTransfer, User, UserProfile
-from ..schemas import MemberOut, MembersResult, ReceivedHandoverOut, ReceivedHandoversResult
+from ..schemas import HandoverCalendarResult, MemberOut, MembersResult, ReceivedHandoverOut, ReceivedHandoversResult
 from ..services.documents import ORIGIN_LABELS
+from ..services.handover_calendar import add_handover_schedule, summary_message
 from .deps import as_utc, current_user, get_db
 
 router = APIRouter(prefix="/api", tags=["handovers"])
@@ -99,3 +100,14 @@ def list_received(user: User = Depends(current_user), db: Session = Depends(get_
     owners = owner_login_ids(db, rows)
     latest = latest_versions(db, [r.id for r in rows])
     return ReceivedHandoversResult(handovers=[received_out(r, owners.get(r.user_id, ""), latest.get(r.id)) for r in rows])
+
+
+@router.post("/handovers/received/{session_id}/calendar", response_model=HandoverCalendarResult, summary="받은 인수인계서의 정기업무·마감일을 내 캘린더에 넣기(같은 일정은 건너뜀)")
+def add_received_to_calendar(session_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    received = db.scalar(select(HandoverTransfer.id).where(HandoverTransfer.session_id == session_id, HandoverTransfer.recipient_id == user.id).limit(1))
+    row = db.get(HandoverSession, session_id) if received else None
+    if row is None:
+        raise HTTPException(status_code=404, detail="받은 인수인계서를 찾을 수 없습니다.")
+    result = add_handover_schedule(db, user, row)
+    db.commit()
+    return HandoverCalendarResult(message=summary_message(result, user.name), events=result.events, routines=result.routines, skipped=result.skipped)

@@ -60,6 +60,16 @@ def require_admin(user: User = Depends(current_user)) -> User:
     return user
 
 
+READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+REVIEW_ONLY = "팀장(관리자) 계정은 인수인계서를 작성·수정할 수 없고 팀원의 인수인계서를 검토만 할 수 있습니다."
+
+
+def require_writer(request: Request, user: User | None = Depends(optional_user)) -> None:
+    """인수인계 작성 API 공통 검사: 팀장(users.is_admin) 계정은 읽기(GET)만 할 수 있다(세션·단위업무를 만들거나 고칠 수 없음)."""
+    if user is not None and user.is_admin and request.method not in READ_METHODS:
+        raise HTTPException(status_code=403, detail=REVIEW_ONLY)
+
+
 def get_user_id(x_user_id: str | None = Header(default=None), user: User | None = Depends(optional_user)) -> str:
     """세션 소유자 구분. 로그인했으면 계정 기준, 아니면 프로토타입용 X-User-Id(브라우저가 만든 임의 ID)."""
     if user is not None:
