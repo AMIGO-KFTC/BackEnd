@@ -46,7 +46,7 @@ from .routers import (
     transfers,
     unit_tasks,
 )
-from .routers.deps import get_services, guard_session_owner, usage_total
+from .routers.deps import get_services, guard_session_owner, require_writer, usage_total
 from .schemas import UsageTotal
 from .services.container import Services
 
@@ -93,7 +93,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         profile.router,
         team_guidelines.router,
         team_duties.router,
-        unit_tasks.router,
         conversations.router,
         documents.mine_router,
         mail.router,
@@ -104,9 +103,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         team_schedules.router,
     ):
         app.include_router(router)
-    # 로그인 계정이 만든 세션은 그 계정만 접근
+    # 인수인계 작성 API: 팀장(관리자) 계정은 읽기만(require_writer 가 먼저 403), 로그인 계정이 만든 세션은 그 계정만 접근
+    app.include_router(unit_tasks.router, dependencies=[Depends(require_writer)])
     for router in (sessions.router, sources.router, chat.router, documents.router, evidence.router, mail.session_router, integrations.session_router, transfers.session_router):
-        app.include_router(router, dependencies=[Depends(guard_session_owner)])
+        app.include_router(router, dependencies=[Depends(require_writer), Depends(guard_session_owner)])
     app.include_router(mock_wiki.router)  # 가상 컨플루언스 화면(/wiki)
     _install_error_handlers(app)
 
