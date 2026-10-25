@@ -375,7 +375,7 @@ class MockAgent:
 
     @staticmethod
     def _planned_gaps(profile: dict[str, Any]) -> list[dict[str, Any]]:
-        """시나리오 질문 목록. 소속 부서의 특이사항이 있으면 '부서별 추가 자료' 일반 질문 대신 부서가 관리하는 대상(라이센스 업체·가맹점·중요 문서)의 관리 방식을 묻는다(최대 3개)."""
+        """시나리오 질문 목록. 소속 부·팀의 인수인계 목록이 있으면 '부서별 추가 자료' 일반 질문 대신 목록의 서류·물품 관리 방식과 비고 사항을 묻는다(최대 3개)."""
         info = clean_dept_info(profile.get("dept_notes"))
         if not has_info(info):
             return list(scenario.GAPS)
