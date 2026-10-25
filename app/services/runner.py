@@ -132,12 +132,19 @@ class JobRunner:
         self._drain_pending_files(session_id)
 
     def _refresh_agent_profile(self, session_id: str) -> None:
-        """진행 중인 대화의 인계자 정보에 팀 지침(팀장 프롬프트 포함)과 부·팀 인수인계 목록의 최신 값을 반영한다. 지침을 지웠으면 None 으로 지운다."""
+        """진행 중인 대화의 인계자 정보에 팀 지침(팀장 프롬프트 포함)과 부·팀 인수인계 목록의 최신 값을 반영한다. 지침을 지웠으면 None 으로 지운다.
+
+        인수인계서 양식(form)도 함께 넣는다: 양식 컬럼이 생기기 전에 분석을 시작한 세션도 다음 턴부터 세션에 저장된 양식을 따른다.
+        """
         with self.services.db() as db:
             row = db.get(HandoverSession, session_id)
             if row is None:
                 return
-            patch = {"team_guidelines": guidelines_for(db, row.organization), "dept_notes": department_notes_for(row.organization)}
+            patch = {
+                "team_guidelines": guidelines_for(db, row.organization),
+                "dept_notes": department_notes_for(row.organization),
+                "form": row.form or "standard",
+            }
         try:
             self.services.agent.update_profile(session_id, patch)
         except Exception:  # 갱신 실패가 답변 처리를 막지 않게 한다(이전 값으로 계속)

@@ -30,6 +30,13 @@ def member_write_calls(session_id: str, task_id: str, recipient_id: int) -> list
 
 
 @pytest.fixture()
+def settings(settings):
+    """자료를 올려도 자동 분석을 시작하지 않는다: 분석이 도는 동안에는 문서 저장이 409 라 테스트가 시점에 따라 흔들린다."""
+    settings.auto_analyze = False
+    return settings
+
+
+@pytest.fixture()
 def team(client):
     """IT 팀장 김미고(관리자) + 계장 김민준(demo), 최환(hwan). 김민준의 단위업무 1건(문서 v1)을 만든다."""
     signup(client, "amigoteamjang", "김미고", TEAM_IT, "팀장", role="admin")
