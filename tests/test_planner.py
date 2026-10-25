@@ -32,7 +32,7 @@ def test_events_and_todos_round_trip(client):
     client.post("/api/planner/events", json={"id": "ev-2", "date": "2026-10-26", "text": "보고"})
 
     todo = client.post("/api/planner/todos", json={"id": "td-1", "text": "인수인계서 검토", "date": "2026-10-27"}).json()["todo"]
-    assert todo == {"id": "td-1", "text": "인수인계서 검토", "done": False, "date": "2026-10-27"}
+    assert todo == {"id": "td-1", "text": "인수인계서 검토", "done": False, "date": "2026-10-27", "memo": ""}
     client.post("/api/planner/todos", json={"id": "td-2", "text": "날짜 없는 일"})
 
     planner = client.get("/api/planner").json()
@@ -43,7 +43,7 @@ def test_events_and_todos_round_trip(client):
     done = client.patch("/api/planner/todos/td-1", json={"done": True}).json()["todo"]
     assert done["done"] is True and done["date"] == "2026-10-27" and done["text"] == "인수인계서 검토"
     moved = client.patch("/api/planner/todos/td-1", json={"date": None, "text": "검토 완료"}).json()["todo"]
-    assert moved == {"id": "td-1", "text": "검토 완료", "done": True, "date": None}
+    assert moved == {"id": "td-1", "text": "검토 완료", "done": True, "date": None, "memo": ""}
 
     cleared = client.post("/api/planner/todos/clear-done").json()
     assert cleared["removed"] == 1
@@ -145,7 +145,25 @@ def test_week_tasks_round_trip(client):
     assert res.status_code == 201 and res.json()["task"]["week"] == "2026-10-25"  # 수요일을 보내도 그 주 일요일로 맞춘다
     assert client.post("/api/planner/week-tasks", json={"id": "w1", "week": "2026-10-25", "text": "주간 보고서 작성"}).status_code == 200
     assert client.post("/api/planner/week-tasks", json={"week": "2026-10-25", "text": ""}).status_code == 422
-    assert client.get("/api/planner").json()["week_tasks"] == [{"id": "w1", "week": "2026-10-25", "text": "주간 보고서 작성"}]
+    assert client.get("/api/planner").json()["week_tasks"] == [{"id": "w1", "week": "2026-10-25", "text": "주간 보고서 작성", "memo": "", "done": False}]
     assert client.delete("/api/planner/week-tasks/w1").status_code == 200
     assert client.delete("/api/planner/week-tasks/w1").status_code == 404
     assert client.get("/api/planner").json()["week_tasks"] == []
+
+
+def test_memo_on_event_week_task_and_todo(client):
+    """일정·주간 업무·할 일에 짧은 메모를 남기고 지운다."""
+    login(client)
+    client.post("/api/planner/events", json={"id": "e1", "date": "2026-10-28", "text": "VPN 점검"})
+    client.post("/api/planner/week-tasks", json={"id": "w1", "week": "2026-10-25", "text": "주간보고"})
+    client.post("/api/planner/todos", json={"id": "t1", "text": "견적 확인"})
+    assert client.patch("/api/planner/events/e1", json={"memo": "업체 오지훈 대리 동행"}).json()["event"]["memo"] == "업체 오지훈 대리 동행"
+    assert client.patch("/api/planner/week-tasks/w1", json={"memo": "금요일 오전까지"}).json()["task"]["memo"] == "금요일 오전까지"
+    assert client.patch("/api/planner/todos/t1", json={"memo": "재무팀 양식"}).json()["todo"]["memo"] == "재무팀 양식"
+    data = client.get("/api/planner").json()
+    assert [e["memo"] for e in data["events"]] == ["업체 오지훈 대리 동행"] and data["week_tasks"][0]["memo"] == "금요일 오전까지" and data["todos"][0]["memo"] == "재무팀 양식"
+    assert client.patch("/api/planner/todos/t1", json={"memo": ""}).json()["todo"]["memo"] == ""
+    assert client.patch("/api/planner/events/nope", json={"memo": "x"}).status_code == 404
+    assert client.patch("/api/planner/events/e1", json={"done": True}).json()["event"]["done"] is True  # 체크리스트
+    assert client.patch("/api/planner/week-tasks/w1", json={"done": True}).json()["task"]["done"] is True
+    assert client.get("/api/planner").json()["events"][0]["done"] is True

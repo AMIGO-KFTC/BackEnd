@@ -3,6 +3,7 @@
 - 질문 범위(scope)는 업무(세션) 하나: 근거는 그 업무의 지식베이스(올린 자료 + 인계자 답변)와 인수인계서다. 인수인계서는 근거 중 하나다.
 - 내 업무(mine): 자료·인계자 답변·인수인계서를 모두 쓴다. 자료만 있고 아직 문서가 없는 작업 중인 업무도 물어볼 수 있다.
 - 받은 인수인계(received): 인계자가 전송한 것은 인수인계서뿐이라 그것만 쓴다. 원본 자료는 인계자만 볼 수 있다.
+- 팀원 인수인계(team): 팀장(관리자)은 같은 팀 구성원의 인수인계를 검토하므로 자료·인수인계서를 모두 쓴다(나에게 전송된 것은 received 로 둔다).
 - GET  /api/handover-chat/scopes  질문할 수 있는 업무 목록
 - POST /api/handover-chat         질문 → 답변 + 근거 자료. 대화는 서버에 저장하지 않고 화면이 history 로 보낸다(꼬리 질문용).
 아무것도 바꾸지 않는다(문서 수정은 인계자의 기존 문서 채팅·직접 수정으로 한다).
@@ -23,6 +24,7 @@ from ..services.container import Services
 from ..services.exporters import strip_citation_marks
 from .chat import _ensure_budget
 from .deps import as_utc, current_user, get_db, get_services
+from ..services.guidelines import organization_key
 from .handovers import duty_names
 
 router = APIRouter(prefix="/api/handover-chat", tags=["handover-chat"])
@@ -60,6 +62,7 @@ def accessible_materials(db: Session, user: User) -> list[Material]:
         names = recipients.setdefault(session_id or "", [])
         if name not in names:
             names.append(name)
+    team_recipients = _recipients_of(db, [row.id for row in team_sessions(db, user)])
     for row in db.scalars(select(HandoverSession).where(HandoverSession.user_id == user.owner_key)):
         sources = _ready_sources(row)
         if not row.document_md and not sources:
@@ -70,9 +73,24 @@ def accessible_materials(db: Session, user: User) -> list[Material]:
             session_id=row.id, updated_at=as_utc(row.updated_at), duties=duty_names(row), recipients=recipients.get(row.id, []),
         )
         found[row.id] = Material(scope, _doc_text(row.document_md), row.id if sources else None)
+    for row in team_sessions(db, user):
+        if row.id in found:
+            continue
+        sources = _ready_sources(row)
+        if not row.document_md and not sources:
+            continue
+        scope = HandoverChatScope(
+            id=row.id, title=row.title or row.task_name or "인수인계", task_name=row.task_name, owner_name=row.owner_name, kind="team",
+            version=row.document_version if row.document_md else 0, has_document=bool(row.document_md), source_count=sources,
+            session_id=row.id, updated_at=as_utc(row.updated_at), duties=duty_names(row), recipients=team_recipients.get(row.id, []),
+        )
+        found[row.id] = Material(scope, _doc_text(row.document_md), row.id if sources else None)
     for t in db.scalars(select(HandoverTransfer).where(HandoverTransfer.recipient_id == user.id)):
         row = t.session
         if row is not None and row.document_md:  # 인계자가 고친 최신 문서
+            if row.id in found and found[row.id].scope.kind == "team":  # 팀원이 나(팀장)에게 보낸 것은 받은 인수인계로 본다(자료 근거는 그대로)
+                found[row.id].scope.kind = "received"
+                continue
             scope = HandoverChatScope(
                 id=row.id, title=row.title or row.task_name or "인수인계", task_name=row.task_name, owner_name=row.owner_name, kind="received",
                 version=row.document_version, has_document=True, source_count=0, session_id=row.id, updated_at=as_utc(row.updated_at),
@@ -87,6 +105,32 @@ def accessible_materials(db: Session, user: User) -> list[Material]:
             )
             found[scope.id] = Material(scope, _doc_text(t.markdown), None)
     return sorted(found.values(), key=lambda m: m.scope.updated_at, reverse=True)
+
+
+def team_sessions(db: Session, user: User) -> list[HandoverSession]:
+    """팀장(관리자)이 검토하는 같은 팀 구성원(본인 제외)의 인수인계. 팀장이 아니거나 소속이 없으면 빈 목록."""
+    if not user.is_admin or user.profile is None or not organization_key(user.profile.organization):
+        return []
+    from .admin import own_team_members, own_team_sessions  # 순환 import 방지
+
+    _, members = own_team_members(db, user)
+    return list(own_team_sessions(db, [u for u in members if u.id != user.id]))
+
+
+def _recipients_of(db: Session, session_ids: list[str]) -> dict[str, list[str]]:
+    """세션 → 전송받은 사람 이름(보낸 순서)."""
+    out: dict[str, list[str]] = {}
+    if not session_ids:
+        return out
+    rows = db.execute(
+        select(HandoverTransfer.session_id, User.name).join(User, User.id == HandoverTransfer.recipient_id)
+        .where(HandoverTransfer.session_id.in_(session_ids)).order_by(HandoverTransfer.created_at)
+    ).all()
+    for session_id, name in rows:
+        names = out.setdefault(session_id, [])
+        if name not in names:
+            names.append(name)
+    return out
 
 
 def _label(scope: HandoverChatScope) -> str:

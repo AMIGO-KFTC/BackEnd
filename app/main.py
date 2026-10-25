@@ -34,6 +34,7 @@ from .routers import (
     integrations,
     mail,
     me,
+    mock_jira,
     mock_wiki,
     notifications,
     org_duties,
@@ -113,6 +114,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     for router in (sessions.router, sources.router, chat.router, documents.router, evidence.router, mail.session_router, integrations.session_router, transfers.session_router):
         app.include_router(router, dependencies=[Depends(guard_session_owner)])
     app.include_router(mock_wiki.router)  # 가상 컨플루언스 화면(/wiki)
+    app.include_router(mock_jira.router)  # 가상 지라 화면(/jira)
     _install_error_handlers(app)
 
     @app.get("/api/health", tags=["meta"], summary="서버 상태와 연동 점검(DB · RAG · AI)")
