@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from ..models import HandoverSession, Message, User
 from ..schemas import MessageOut, SessionCreate, SessionDetail, SessionSummary, StateOut
 from ..services.container import Services
-from .deps import detail, get_db, get_services, get_user_id, load_session, message_out, summary, usage_total
+from .deps import detail, get_db, get_services, get_user_id, is_successor, is_team_admin, load_session, message_out, optional_user, summary, usage_total
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -112,8 +112,17 @@ def list_sessions(db: Session = Depends(get_db), user_id: str = Depends(get_user
 
 
 @router.get("/{session_id}", response_model=SessionDetail, summary="세션 상세(단계, 진행률, 슬롯 현황, 자료 목록)")
-def get_session(session_id: str, db: Session = Depends(get_db)):
-    return detail(db, load_session(db, session_id))
+def get_session(session_id: str, db: Session = Depends(get_db), user: User | None = Depends(optional_user)):
+    row = load_session(db, session_id)
+    out = detail(db, row)
+    if user is not None and row.user_id.startswith("user:"):  # 화면이 읽기 전용 표시(전달받은 문서 / 팀원 문서)를 고르는 데 쓴다
+        if user.owner_key == row.user_id:
+            out.viewer = "owner"
+        elif is_successor(db, user, row):
+            out.viewer = "recipient"
+        elif is_team_admin(db, user, row):
+            out.viewer = "team"
+    return out
 
 
 @router.get("/{session_id}/state", response_model=StateOut, summary="폴링: 세션 상태 + after 이후의 새 메시지")

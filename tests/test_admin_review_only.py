@@ -110,3 +110,23 @@ def test_member_still_writes(client, team):
     assert res.status_code == 200 and res.json()["saved"] is True, res.text
     assert client.post(f"{s}/transfers", json={"recipient_id": team["recipient_id"]}).status_code == 201
     assert client.delete(f"/api/unit-tasks/{task_id}").status_code == 200
+
+
+def test_admin_sees_team_handovers_in_chat_and_detail(client, team):
+    """팀장은 챗봇 질문 범위에서 팀원 인수인계(team)를 보고, 세션 상세의 viewer 로 팀원 문서인지 안다."""
+    login(client, "amigoteamjang")
+    scopes = client.get("/api/handover-chat/scopes").json()["scopes"]
+    assert [(s["id"], s["kind"], s["owner_name"]) for s in scopes] == [(team["session_id"], "team", "김민준")]
+    assert client.get(f"/api/sessions/{team['session_id']}").json()["viewer"] == "team"
+    res = client.post("/api/handover-chat", json={"question": "개요 알려 줘", "scope_ids": [team["session_id"]]})
+    assert res.status_code == 200, res.text
+    client.post("/api/auth/logout")
+
+    login(client, "demo")  # 팀원에게는 팀 범위가 없고, 자기 세션은 owner
+    assert all(s["kind"] != "team" for s in client.get("/api/handover-chat/scopes").json()["scopes"])
+    assert client.get(f"/api/sessions/{team['session_id']}").json()["viewer"] == "owner"
+    assert client.post(f"/api/sessions/{team['session_id']}/transfers", json={"recipient_id": team["recipient_id"]}).status_code == 201
+    client.post("/api/auth/logout")
+
+    login(client, "hwan")  # 전송받은 사람은 recipient
+    assert client.get(f"/api/sessions/{team['session_id']}").json()["viewer"] == "recipient"

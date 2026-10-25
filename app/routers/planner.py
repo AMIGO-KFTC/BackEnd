@@ -20,6 +20,7 @@ from ..schemas import (
     PlannerEventOut,
     PlannerEventResult,
     PlannerImportIn,
+    PlannerItemUpdate,
     PlannerOut,
     PlannerRoutineOut,
     PlannerTodoIn,
@@ -41,11 +42,11 @@ TOO_MANY = "더 저장할 수 없습니다. 지난 일정이나 완료한 할 �
 
 
 def _event_out(row: PlannerEvent) -> PlannerEventOut:
-    return PlannerEventOut(id=row.key, date=row.date, text=row.text)
+    return PlannerEventOut(id=row.key, date=row.date, text=row.text, memo=row.memo or "", done=bool(row.done))
 
 
 def _todo_out(row: PlannerTodo) -> PlannerTodoOut:
-    return PlannerTodoOut(id=row.key, text=row.text, done=bool(row.done), date=row.date)
+    return PlannerTodoOut(id=row.key, text=row.text, done=bool(row.done), date=row.date, memo=row.memo or "")
 
 
 def _routine_out(row: PlannerRoutine) -> PlannerRoutineOut:
@@ -54,7 +55,7 @@ def _routine_out(row: PlannerRoutine) -> PlannerRoutineOut:
 
 
 def _week_task_out(row: PlannerWeekTask) -> PlannerWeekTaskOut:
-    return PlannerWeekTaskOut(id=row.key, week=row.week, text=row.text)
+    return PlannerWeekTaskOut(id=row.key, week=row.week, text=row.text, memo=row.memo or "", done=bool(row.done))
 
 
 def _planner(db: Session, user: User, message: str = "") -> PlannerOut:
@@ -113,6 +114,21 @@ def add_event(body: PlannerEventIn, response: Response, user: User = Depends(cur
     return PlannerEventResult(message="일정을 추가했습니다." if created else "이미 있는 일정입니다.", event=_event_out(row))
 
 
+@router.patch("/events/{event_id}", response_model=PlannerEventResult, summary="일정 수정(보낸 필드만: 내용 · 메모 · 다 했는지)")
+def update_event(event_id: str, body: PlannerItemUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    row = _find(db, PlannerEvent, user, event_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="일정을 찾을 수 없습니다.")
+    if body.text is not None:
+        row.text = body.text
+    if "memo" in body.model_fields_set:
+        row.memo = body.memo or ""
+    if body.done is not None:
+        row.done = body.done
+    db.commit()
+    return PlannerEventResult(message="일정을 고쳤습니다.", event=_event_out(row))
+
+
 @router.delete("/events/{event_id}", response_model=Result, summary="일정 삭제")
 def delete_event(event_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     row = _find(db, PlannerEvent, user, event_id)
@@ -146,6 +162,21 @@ def add_week_task(body: PlannerWeekTaskIn, response: Response, user: User = Depe
     db.add(row)
     db.commit()
     return PlannerWeekTaskResult(message="주간 업무를 추가했습니다.", task=_week_task_out(row))
+
+
+@router.patch("/week-tasks/{task_id}", response_model=PlannerWeekTaskResult, summary="주간 업무 수정(보낸 필드만: 내용 · 메모 · 다 했는지)")
+def update_week_task(task_id: str, body: PlannerItemUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    row = _find(db, PlannerWeekTask, user, task_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="주간 업무를 찾을 수 없습니다.")
+    if body.text is not None:
+        row.text = body.text
+    if "memo" in body.model_fields_set:
+        row.memo = body.memo or ""
+    if body.done is not None:
+        row.done = body.done
+    db.commit()
+    return PlannerWeekTaskResult(message="주간 업무를 고쳤습니다.", task=_week_task_out(row))
 
 
 @router.delete("/week-tasks/{task_id}", response_model=Result, summary="주간 업무 삭제")
@@ -187,6 +218,8 @@ def update_todo(todo_id: str, body: PlannerTodoUpdate, user: User = Depends(curr
         row.done = body.done
     if "date" in fields:
         row.date = body.date
+    if "memo" in fields:
+        row.memo = body.memo or ""
     db.commit()
     return PlannerTodoResult(message="할 일을 고쳤습니다.", todo=_todo_out(row))
 

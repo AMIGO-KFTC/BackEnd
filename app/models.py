@@ -354,6 +354,8 @@ class PlannerEvent(Base):
     key: Mapped[str] = mapped_column(String(40))
     date: Mapped[str] = mapped_column(String(10))  # YYYY-MM-DD
     text: Mapped[str] = mapped_column(String(200))
+    memo: Mapped[str] = mapped_column(String(500), default="")  # 짧은 메모(캘린더에서 항목을 눌러 적는다)
+    done: Mapped[bool] = mapped_column(Boolean, default=False)  # 체크리스트로 다 했는지
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
@@ -369,6 +371,7 @@ class PlannerTodo(Base):
     text: Mapped[str] = mapped_column(String(200))
     done: Mapped[bool] = mapped_column(Boolean, default=False)
     date: Mapped[str | None] = mapped_column(String(10), default=None)  # YYYY-MM-DD, None 이면 날짜 없음
+    memo: Mapped[str] = mapped_column(String(500), default="")  # 짧은 메모
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
@@ -386,6 +389,8 @@ class PlannerWeekTask(Base):
     key: Mapped[str] = mapped_column(String(40))
     week: Mapped[str] = mapped_column(String(10))  # 그 주 일요일 YYYY-MM-DD
     text: Mapped[str] = mapped_column(String(200))
+    memo: Mapped[str] = mapped_column(String(500), default="")  # 짧은 메모
+    done: Mapped[bool] = mapped_column(Boolean, default=False)  # 체크리스트로 다 했는지
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 

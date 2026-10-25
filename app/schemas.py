@@ -369,6 +369,9 @@ class SessionDetail(SessionSummary):
     units: list[UnitOut] = Field(default_factory=list, description="인계자 정보에서 고른 단위업무와 세부업무(정기·비정기). 예전 세션은 빈 목록")
     owner_login_id: str = Field(default="", description="인계자(세션을 만든 로그인 계정)의 아이디. 로그인 없이 만든 세션이면 빈 값")
     form: str = Field(default="standard", description="인수인계서 양식: standard(기본 양식) | office(원내 양식, 팀장이 만든 세션)")
+    viewer: Literal["owner", "recipient", "team", ""] = Field(
+        default="", description="지금 보는 계정과 이 세션의 관계: owner(인계자) | recipient(전송받은 사람) | team(같은 팀 팀장) | 빈 값(로그인 없이 만든 세션)"
+    )
     progress: Progress
     error: str
     engine: str
@@ -411,6 +414,16 @@ class MattermostImportIn(BaseModel):
     """가상 Mattermost 에서 고른 대화를 인수인계 자료로 등록한다."""
 
     conversation_ids: list[str] = Field(min_length=1, max_length=20)
+
+
+class JiraMoveIn(BaseModel):
+    status: str = Field(description="할 일 | 진행 중 | 검토 중 | 완료")
+
+
+class JiraImportIn(BaseModel):
+    """가상 Jira 에서 고른 이슈(키) · 에픽 · 프로젝트 진행 현황('project:<키>')을 인수인계 자료로 등록한다."""
+
+    item_ids: list[str] = Field(min_length=1, max_length=30)
 
 
 class ConfluenceImportIn(BaseModel):
@@ -661,7 +674,9 @@ class ReceivedHandoverOut(BaseModel):
     title: str
     task_name: str
     duties: list[str] = Field(default_factory=list, description="이 인수인계서에 담긴 담당 업무 이름(한 건에 여러 업무가 들어갈 수 있다). 받은 인수인계 화면의 업무별 검색에 쓴다")
-    mode: str
+    mode: str = Field(description="reassignment(정기인사 발령) | leave(장기휴가)")
+    leave_start: str = Field(default="", description="장기휴가 시작일(YYYY-MM-DD, 장기휴가일 때만)")
+    leave_end: str = Field(default="", description="장기휴가 종료일")
     owner_name: str
     owner_login_id: str = ""
     organization: str
@@ -1004,7 +1019,10 @@ class HandoverChatScope(BaseModel):
     title: str
     task_name: str
     owner_name: str = Field(description="인계자")
-    kind: Literal["mine", "received"] = Field(description="mine: 내가 만든 업무, received: 인계자가 나에게 전송한 인수인계서(원본 자료는 공유되지 않아 인수인계서만 근거가 된다)")
+    kind: Literal["mine", "received", "team"] = Field(
+        description="mine: 내가 만든 업무, received: 인계자가 나에게 전송한 인수인계서(원본 자료는 공유되지 않아 인수인계서만 근거가 된다), "
+        "team: 팀장(관리자)이 검토하는 같은 팀 구성원의 인수인계(자료·인수인계서 모두 근거)"
+    )
     version: int = Field(description="인수인계서 버전(아직 없으면 0)")
     has_document: bool
     source_count: int = Field(description="질문 근거가 되는 올린 자료 수(분석이 끝난 파일·링크·메일). 받은 인수인계는 항상 0")
@@ -1033,7 +1051,7 @@ class HandoverChatSource(BaseModel):
     scope_id: str
     scope_title: str
     scope_task: str = Field(default="", description="참조한 업무 이름(단위업무명). 없으면 빈 문자열")
-    scope_kind: Literal["mine", "received"] = Field(default="mine", description="mine: 내 업무, received: 전달받은 인수인계")
+    scope_kind: Literal["mine", "received", "team"] = Field(default="mine", description="mine: 내 업무, received: 전달받은 인수인계, team: 팀원 인수인계(팀장)")
     scope_owner: str = Field(default="", description="그 업무의 인계자 이름")
     session_id: str | None = Field(description="인수인계서를 열 수 있는 세션 ID(지워졌으면 null)")
     kind: Literal["document", "answer", "mail", "link", "file", "note"] = Field(description="document: 인수인계서, answer: 인계자 답변, mail: 메일, link: 링크, file: 올린 파일, note: 메모")
@@ -1098,6 +1116,16 @@ class PlannerEventOut(BaseModel):
     id: str
     date: str
     text: str
+    memo: str = ""
+    done: bool = False
+
+
+class PlannerItemUpdate(_Stripped):
+    """일정·주간 업무 수정(보낸 필드만): 내용 · 메모 · 다 했는지(체크리스트). 메모를 빈 문자열로 보내면 지운다."""
+
+    text: str | None = Field(default=None, min_length=1, max_length=200)
+    memo: str | None = Field(default=None, max_length=500)
+    done: bool | None = None
 
 
 class PlannerTodoIn(_Stripped):
@@ -1117,6 +1145,7 @@ class PlannerTodoUpdate(_Stripped):
     text: str | None = Field(default=None, min_length=1, max_length=200)
     done: bool | None = None
     date: str | None = Field(default=None, description="날짜(YYYY-MM-DD) 또는 null")
+    memo: str | None = Field(default=None, max_length=500, description="짧은 메모(빈 문자열이면 지움)")
 
     @field_validator("date")
     @classmethod
@@ -1129,6 +1158,7 @@ class PlannerTodoOut(BaseModel):
     text: str
     done: bool
     date: str | None
+    memo: str = ""
 
 
 class PlannerWeekTaskIn(_Stripped):
@@ -1147,6 +1177,8 @@ class PlannerWeekTaskOut(BaseModel):
     id: str
     week: str = Field(description="그 주 일요일")
     text: str
+    memo: str = ""
+    done: bool = False
 
 
 class PlannerWeekTaskResult(Result):
