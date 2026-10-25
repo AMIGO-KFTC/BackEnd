@@ -477,3 +477,17 @@ class TeamSchedule(Base):
     created_by_name: Mapped[str] = mapped_column(String(50), default="")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class NotificationState(Base):
+    """알림 확인·삭제 상태(계정별). 알림 자체는 받은 인수인계서에서 만들고, 여기에는 읽음·지움만 남긴다.
+
+    key 는 알림 ID(예: 'transfer:<전송 ID>:v3')라 인계자가 문서를 고쳐 버전이 오르면 새 알림이 된다.
+    """
+
+    __tablename__ = "notification_states"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    read_at: Mapped[datetime | None] = mapped_column(default=None)
+    dismissed_at: Mapped[datetime | None] = mapped_column(default=None)
