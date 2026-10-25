@@ -199,7 +199,7 @@ def test_prompt_only_team_gets_the_prompt_in_the_agent_profile(client):
     with services.db() as db:
         assert db.get(TeamGuideline, ORG).items_json == "[]"
         guide = guidelines_for(db, "디지털전략부 · 웹서비스팀")
-    assert guide == {"items": [], "notes": "", "prompt": "항상 존댓말로 쓰세요."}
+    assert guide == {"items": [], "notes": "", "prompt": "항상 존댓말로 쓰세요.", "intro": "", "glossary": []}
 
 
 def test_prompt_saved_after_analysis_reaches_the_agent_on_the_next_turn(tmp_path):
@@ -231,3 +231,37 @@ def test_prompt_saved_after_analysis_reaches_the_agent_on_the_next_turn(tmp_path
                 break
             time.sleep(0.1)
         assert "team_guidelines" not in agent._states[sid]["profile"]
+
+
+def test_ai_customization_steps_intro_glossary_and_documents(client):
+    """AI 팀 맞춤 설정 STEP1 팀 소개 · STEP2 업무 용어집 · STEP3 팀 업무 문서 · STEP4 기타 중요 포인트(notes)."""
+    login(client)
+    url = "/api/team-guidelines/me"
+    body = {
+        "intro": "운영기획팀은 결제망 운영계획 수립, 참가기관 관리, 운영 실적 보고를 담당합니다.",
+        "glossary": [{"term": "개설기관", "meaning": "계좌를 개설해 주는 기관"}, {"term": "대표앱", "meaning": ""}],
+        "notes": "가맹점별 가입·해지 일정이 인수인계서에 꼭 들어가야 한다.",
+    }
+    saved = client.put(url, json=body).json()
+    assert saved["intro"] == body["intro"] and [t["term"] for t in saved["glossary"]] == ["개설기관", "대표앱"]
+    preview = saved["prompt_preview"]
+    assert "팀 소개" in preview and "개설기관: 계좌를 개설해 주는 기관" in preview and "기타 중요 포인트" in preview
+
+    # 같은 용어를 두 번 적으면 거절한다. 다른 필드만 보내면 용어집은 그대로다.
+    dup = client.put(url, json={"glossary": [{"term": "대표앱"}, {"term": " 대표앱 "}]})
+    assert dup.status_code == 422
+    assert client.put(url, json={"intro": "새 소개"}).json()["glossary"][0]["term"] == "개설기관"
+
+    # STEP3: 자료 올리기·목록·지우기(소속마다 따로)
+    pdf = ("업무분장표.pdf", b"%PDF-1.4 sample", "application/pdf")
+    up = client.post(f"{url}/documents", files=[("files", pdf)])
+    assert up.status_code == 201 and up.json()[0]["name"] == "업무분장표.pdf"
+    listed = client.get(url).json()["documents"]
+    assert [d["name"] for d in listed] == ["업무분장표.pdf"]
+    assert client.post(f"{url}/documents", files=[("files", ("악성.exe", b"MZ", "application/octet-stream"))]).status_code == 400
+    login(client, "other.user", {"department": "재무부", "team": "회계팀", "position": "대리"}, "박지훈")
+    assert client.get(url).json()["documents"] == []
+    assert client.delete(f"{url}/documents/{listed[0]['id']}").status_code == 404  # 다른 팀 자료는 못 지운다
+    assert client.post("/api/auth/login", json={"login_id": "minsu.kim", "password": "correct-horse-1"}).status_code == 200
+    assert client.delete(f"{url}/documents/{listed[0]['id']}").status_code == 204
+    assert client.get(url).json()["documents"] == []

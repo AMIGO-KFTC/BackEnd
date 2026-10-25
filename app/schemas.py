@@ -899,11 +899,26 @@ class TeamGuidelineItem(_Stripped):
     instruction: str = Field(default="", max_length=500, description="작성 안내: 이 항목에 무엇을 적어야 하는지")
 
 
+class TeamGlossaryTerm(_Stripped):
+    term: str = Field(min_length=1, max_length=60, description="용어. 예: 개설기관")
+    meaning: str = Field(default="", max_length=300, description="뜻. 예: 오픈뱅킹 서비스를 제공하기 위해 개설된 기관")
+
+
+class TeamDocumentOut(_Stripped):
+    id: str
+    name: str
+    size: int
+    uploaded_by: str = ""
+    uploaded_at: datetime | None = None
+
+
 class TeamGuidelineIn(_Stripped):
     # 보낸 필드만 바꾼다(보내지 않은 필드는 그대로). 항목 화면은 items·notes 를, AI 맞춤 설정 화면은 prompt 만 보낸다.
     items: list[TeamGuidelineItem] | None = Field(default=None, max_length=30, description="우리 팀 인수인계서에 담는 항목(자료에 있으면 이 이름으로 정리)")
     notes: str | None = Field(default=None, max_length=2000, description="팀 특징·작성 지침(자유 글)")
     prompt: str | None = Field(default=None, max_length=2000, description="팀 전용 프롬프트: AI 가 항상 따라야 하는 역할과 판단 기준")
+    intro: str | None = Field(default=None, max_length=300, description="STEP1 팀 소개(3줄 이내)")
+    glossary: list[TeamGlossaryTerm] | None = Field(default=None, max_length=50, description="STEP2 업무 용어집")
 
 
 class TeamGuidelineOut(Result):
@@ -911,6 +926,9 @@ class TeamGuidelineOut(Result):
     items: list[TeamGuidelineItem]
     notes: str
     prompt: str
+    intro: str = ""
+    glossary: list[TeamGlossaryTerm] = []
+    documents: list[TeamDocumentOut] = Field(default=[], description="STEP3 팀 공통 업무 자료(최신순)")
     updated_at: datetime | None = None
     updated_by: str = ""
     editable: bool = Field(description="이 계정이 지침을 저장할 수 있는지")
