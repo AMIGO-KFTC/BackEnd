@@ -35,6 +35,7 @@ from .routers import (
     mail,
     me,
     mock_wiki,
+    planner,
     profile,
     sessions,
     sources,
@@ -94,6 +95,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         mail.router,
         integrations.router,
         transfers.router,
+        planner.router,
     ):
         app.include_router(router)
     # 로그인 계정이 만든 세션은 그 계정만 접근

@@ -1,4 +1,4 @@
-"""DB 모델: 사용자(관리자 권한) · 프로필 · 팀 인수인계서 지침 · 로그인 세션 · 비밀번호 재설정 · 단위업무 · 인수인계 세션 · 등록 자료(파일 원본) · 대화 메시지 · 대화 진행 상태 · 인수인계서 버전 · 인수인계서 전송."""
+"""DB 모델: 사용자(관리자 권한) · 프로필 · 팀 인수인계서 지침 · 로그인 세션 · 비밀번호 재설정 · 단위업무 · 인수인계 세션 · 등록 자료(파일 원본) · 대화 메시지 · 대화 진행 상태 · 인수인계서 버전 · 인수인계서 전송 · 캘린더 일정·할 일."""
 
 from __future__ import annotations
 
@@ -301,6 +301,39 @@ class HandoverTransfer(Base):
     sender: Mapped[User] = relationship(foreign_keys=[sender_id])
     recipient: Mapped[User] = relationship(foreign_keys=[recipient_id])
     session: Mapped[HandoverSession | None] = relationship()
+
+
+class PlannerEvent(Base):
+    """캘린더 일정(계정별). 홈 대시보드의 작은 캘린더와 '캘린더' 탭이 같이 쓴다.
+
+    key 는 화면에 내보내는 id 다. 화면이 만들어 보내면 그대로 쓰므로(계정 안에서만 유일) 같은 요청을 다시 보내도 두 번 쌓이지 않는다.
+    """
+
+    __tablename__ = "planner_events"
+    __table_args__ = (UniqueConstraint("user_id", "key", name="uq_planner_events_user_key"), Index("ix_planner_events_user_date", "user_id", "date"))
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)  # 내부 번호(추가한 순서)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    key: Mapped[str] = mapped_column(String(40))
+    date: Mapped[str] = mapped_column(String(10))  # YYYY-MM-DD
+    text: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class PlannerTodo(Base):
+    """할 일(투두, 계정별). date 가 비어 있으면 날짜 없는 할 일이다. key 는 PlannerEvent 와 같은 규칙."""
+
+    __tablename__ = "planner_todos"
+    __table_args__ = (UniqueConstraint("user_id", "key", name="uq_planner_todos_user_key"), Index("ix_planner_todos_user_id", "user_id"))
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    key: Mapped[str] = mapped_column(String(40))
+    text: Mapped[str] = mapped_column(String(200))
+    done: Mapped[bool] = mapped_column(Boolean, default=False)
+    date: Mapped[str | None] = mapped_column(String(10), default=None)  # YYYY-MM-DD, None 이면 날짜 없음
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
 
 class FileBlob(Base):

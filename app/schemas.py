@@ -966,3 +966,90 @@ class HandoverChatOut(BaseModel):
     sources: list[HandoverChatSource] = Field(description="답에 근거로 쓴 자료")
     searched: int = Field(description="질문과 관련 있다고 찾은 근거 조각 수")
     engine: str = Field(description="답한 엔진: claude | offline | mock")
+
+
+# ---------------------------------------------------------------- 캘린더 일정 · 할 일(계정별)
+
+PLANNER_KEY_PATTERN = r"^[A-Za-z0-9_-]{1,40}$"  # 화면이 만든 id(비우면 서버가 만든다)
+
+
+def _planner_date(value: str | None) -> str | None:
+    """YYYY-MM-DD 이고 실제 있는 날짜인지 확인한다."""
+    if value is None:
+        return None
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        raise ValueError("날짜는 YYYY-MM-DD 형식이어야 합니다.")
+    date.fromisoformat(value)
+    return value
+
+
+class PlannerEventIn(_Stripped):
+    id: str | None = Field(default=None, pattern=PLANNER_KEY_PATTERN, description="일정 id(선택). 같은 id 로 다시 보내면 새로 만들지 않고 있던 일정을 돌려준다")
+    date: str = Field(description="날짜(YYYY-MM-DD)")
+    text: str = Field(min_length=1, max_length=200, description="일정 내용")
+
+    @field_validator("date")
+    @classmethod
+    def _check_date(cls, value):
+        return _planner_date(value)
+
+
+class PlannerEventOut(BaseModel):
+    id: str
+    date: str
+    text: str
+
+
+class PlannerTodoIn(_Stripped):
+    id: str | None = Field(default=None, pattern=PLANNER_KEY_PATTERN, description="할 일 id(선택). 같은 id 로 다시 보내면 있던 할 일을 돌려준다")
+    text: str = Field(min_length=1, max_length=200, description="할 일 내용")
+    done: bool = False
+    date: str | None = Field(default=None, description="날짜(YYYY-MM-DD). 비우면(null) 날짜 없는 할 일")
+
+    @field_validator("date")
+    @classmethod
+    def _check_date(cls, value):
+        return _planner_date(value)
+
+
+class PlannerTodoUpdate(_Stripped):
+    # 보낸 필드만 바꾼다. date 를 null 로 보내면 날짜 없는 할 일이 된다.
+    text: str | None = Field(default=None, min_length=1, max_length=200)
+    done: bool | None = None
+    date: str | None = Field(default=None, description="날짜(YYYY-MM-DD) 또는 null")
+
+    @field_validator("date")
+    @classmethod
+    def _check_date(cls, value):
+        return _planner_date(value)
+
+
+class PlannerTodoOut(BaseModel):
+    id: str
+    text: str
+    done: bool
+    date: str | None
+
+
+class PlannerOut(Result):
+    events: list[PlannerEventOut] = Field(description="일정(추가한 순서)")
+    todos: list[PlannerTodoOut] = Field(description="할 일(추가한 순서)")
+
+
+class PlannerEventResult(Result):
+    event: PlannerEventOut
+
+
+class PlannerTodoResult(Result):
+    todo: PlannerTodoOut
+
+
+class PlannerImportIn(BaseModel):
+    """예전 화면이 브라우저(localStorage)에 저장해 둔 일정·할 일을 한 번에 옮긴다. id 가 이미 있으면 건너뛴다."""
+
+    events: list[PlannerEventIn] = Field(default_factory=list, max_length=2000)
+    todos: list[PlannerTodoIn] = Field(default_factory=list, max_length=2000)
+
+
+class PlannerCleared(Result):
+    removed: int = Field(description="지운 할 일 수")

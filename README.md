@@ -697,6 +697,25 @@ AI 쪽(`AI/src/amigo_agent/prompts.py` 의 `team_guidelines_block`)이 이를 �
 지침은 무엇을 찾아 담을지 정할 뿐이라, 항목 내용은 여전히 근거 자료와 인계자 답변에서만 가져오고 근거 ID·민감 정보 원칙은 바뀌지 않습니다.
 관리자 권한(역할)이 아직 없어서 `AMIGO_TEAM_GUIDELINE_EDITORS` 로 저장 가능한 계정을 제한합니다.
 
+### 캘린더 일정 · 할 일
+
+홈 대시보드의 작은 캘린더와 왼쪽 탭의 **캘린더** 화면이 쓰는 일정·할 일을 로그인 계정마다 `planner_events` · `planner_todos` 테이블에 저장합니다.
+다른 브라우저·기기에서 같은 계정으로 로그인하면 같은 값을 봅니다. 모두 로그인이 필요하고(`401`), 다른 계정의 일정·할 일은 보이지 않습니다(`404`).
+`id` 는 화면이 만들어 보낼 수 있고(영문·숫자·`_-` 40자, 계정 안에서만 유일) 같은 `id` 로 다시 보내면 새로 만들지 않고 있던 값을 `200` 으로 돌려줍니다. 그래서 화면은 응답을 기다리지 않고 바로 그리고, 끊겨서 다시 보내도 두 번 쌓이지 않습니다.
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/planner` | 내 일정 `events: [{id, date, text}]` 과 할 일 `todos: [{id, text, done, date}]`(추가한 순서). `date` 는 `YYYY-MM-DD`, 할 일의 `date` 가 `null` 이면 날짜 없는 할 일 |
+| POST | `/api/planner/events` | 일정 추가 `{"id"?, "date", "text"}` → `201` + `event` (내용 200자, 없는 날짜는 `422`) |
+| DELETE | `/api/planner/events/{id}` | 일정 삭제 |
+| POST | `/api/planner/todos` | 할 일 추가 `{"id"?, "text", "done"?, "date"?}` → `201` + `todo` |
+| PATCH | `/api/planner/todos/{id}` | 할 일 수정. **보낸 필드만 바꿉니다**(`text` · `done` · `date`, `date: null` 이면 날짜 없음) |
+| DELETE | `/api/planner/todos/{id}` | 할 일 삭제 |
+| POST | `/api/planner/todos/clear-done` | 완료한 할 일 모두 지우기 → `removed` |
+| POST | `/api/planner/import` | 예전 화면이 브라우저(localStorage)에만 저장해 둔 값을 한 번에 옮기기 `{"events": [...], "todos": [...]}`. 이미 있는 `id` 는 건너뛰고 전체 목록을 돌려줌. 화면은 로그인 뒤 한 번 보내고 브라우저 저장분을 지웁니다 |
+
+계정당 일정·할 일은 각각 5,000개까지이고 넘으면 `409` 입니다.
+
 ### 세션 · 자료 · 대화 · 문서
 
 | 메서드 | 경로 | 설명 |
