@@ -246,8 +246,8 @@ def test_gantt_edit_keeps_ai_version_or_user_edits(mock_client):
     second = mock_client.put(f"/api/sessions/{sid}/document/gantt", json={"name": name, "nth": 0, "months": [5, 6, 7]}).json()
     assert second["version"] == 3 and second["origin"] == "user" and "인계자 메모: 직접 쓴 글" in second["markdown"]
     row = re.search(rf"^<tr><td>{re.escape(name)}</td>(.*?)<td>[^<]*</td></tr>$", second["markdown"], re.M).group(1)
-    # 목업 자료에 해를 넘기는 기간(2026.10~2027.01)이 있어 표가 2026.01~2027.01 13칸이다
-    assert row == "<td></td>" * 4 + '<td class="bar" bgcolor="#7055C8" colspan="3">&nbsp;</td>' + "<td></td>" * 6
+    # 목업 자료에 해를 넘기는 기간(2026.10~2027.01)이 있어 표가 분기별(2026·2027, 8칸)이다. 5~7월은 2·3분기 두 칸
+    assert row == "<td></td>" + '<td class="bar" bgcolor="#7055C8" colspan="2">&nbsp;</td>' + "<td></td>" * 5
     assert mock_client.get(f"/api/sessions/{sid}/document/versions").json()["versions"][0]["note"] == "월별 일정표 수정"
 
 
@@ -258,5 +258,5 @@ def test_gantt_edit_keeps_ai_version_or_user_edits(mock_client):
     # 해를 넘기는 표에서는 화면이 YYYYMM 으로 보낸다(2026.12~2027.01 이 이어진 막대 하나)
     third = mock_client.put(f"/api/sessions/{sid}/document/gantt", json={"name": name, "nth": 0, "months": [202612, 202701]}).json()
     row = re.search(rf"^<tr><td>{re.escape(name)}</td>(.*?)<td>[^<]*</td></tr>$", third["markdown"], re.M).group(1)
-    assert row == "<td></td>" * 11 + '<td class="bar" bgcolor="#7055C8" colspan="2">&nbsp;</td>'
+    assert row == "<td></td>" * 3 + '<td class="bar" bgcolor="#7055C8" colspan="2">&nbsp;</td>' + "<td></td>" * 3  # 2026 4분기 + 2027 1분기
     assert mock_client.put(f"/api/sessions/{sid}/document/gantt", json={"name": name, "months": [13]}).status_code == 422

@@ -34,7 +34,7 @@ def test_events_and_todos_round_trip(client):
     client.post("/api/planner/events", json={"id": "ev-2", "date": "2026-10-26", "text": "보고"})
 
     todo = client.post("/api/planner/todos", json={"id": "td-1", "text": "인수인계서 검토", "date": "2026-10-27"}).json()["todo"]
-    assert todo == {"id": "td-1", "text": "인수인계서 검토", "done": False, "date": "2026-10-27", "memo": ""}
+    assert todo == {"id": "td-1", "text": "인수인계서 검토", "done": False, "date": "2026-10-27", "memo": "", "history": []}
     client.post("/api/planner/todos", json={"id": "td-2", "text": "날짜 없는 일"})
 
     planner = client.get("/api/planner").json()
@@ -45,7 +45,7 @@ def test_events_and_todos_round_trip(client):
     done = client.patch("/api/planner/todos/td-1", json={"done": True}).json()["todo"]
     assert done["done"] is True and done["date"] == "2026-10-27" and done["text"] == "인수인계서 검토"
     moved = client.patch("/api/planner/todos/td-1", json={"date": None, "text": "검토 완료"}).json()["todo"]
-    assert moved == {"id": "td-1", "text": "검토 완료", "done": True, "date": None, "memo": ""}
+    assert moved == {"id": "td-1", "text": "검토 완료", "done": True, "date": None, "memo": "", "history": []}
 
     cleared = client.post("/api/planner/todos/clear-done").json()
     assert cleared["removed"] == 1
@@ -207,3 +207,40 @@ def test_onetel_modal_lists_events_and_imports_only_the_chosen_ones(client):
     assert client.post("/api/planner/onetel/import", json={"ids": ["nope"]}).status_code == 404
     rest = client.post("/api/planner/onetel/import", json={"ids": None}).json()  # ids 를 비우면(null) 나머지 모두
     assert rest["events"] == 5 and rest["skipped"] == 2
+
+
+def test_todo_history(client):
+    login(client)
+    client.post("/api/planner/todos", json={"id": "td-h", "text": "실적 취합", "date": "2026-10-23"})
+    first = client.post("/api/planner/todos/td-h/history", json={"text": "  유관부서 실적 확인 진행 중  "})
+    assert first.status_code == 201
+    body = first.json()
+    assert body["entry"]["text"] == "유관부서 실적 확인 진행 중" and body["entry"]["id"] and body["entry"]["created_at"]
+    assert [h["text"] for h in body["todo"]["history"]] == ["유관부서 실적 확인 진행 중"]
+    client.post("/api/planner/todos/td-h/history", json={"text": "자료 취합 완료"})
+    todo = client.get("/api/planner").json()["todos"][0]
+    assert [h["text"] for h in todo["history"]] == ["유관부서 실적 확인 진행 중", "자료 취합 완료"]  # 오래된 것부터
+    # 날짜를 바꿔도 이력은 남는다
+    moved = client.patch("/api/planner/todos/td-h", json={"date": "2026-10-30"}).json()["todo"]
+    assert len(moved["history"]) == 2
+
+
+def test_todo_history_validation_and_owner(client):
+    login(client)
+    client.post("/api/planner/todos", json={"id": "td-h", "text": "실적 취합"})
+    assert client.post("/api/planner/todos/td-h/history", json={"text": "   "}).status_code == 422
+    assert client.post("/api/planner/todos/td-h/history", json={"text": "가" * 501}).status_code == 422
+    assert client.post("/api/planner/todos/td-h/history", json={"text": "가" * 500}).status_code == 201
+    assert client.post("/api/planner/todos/none/history", json={"text": "x"}).status_code == 404
+    login(client, "other.user")
+    assert client.post("/api/planner/todos/td-h/history", json={"text": "남의 것"}).status_code == 404
+    assert client.get("/api/planner").json()["todos"] == []
+
+
+def test_todo_history_limit(client):
+    login(client)
+    client.post("/api/planner/todos", json={"id": "td-h", "text": "실적 취합"})
+    for i in range(50):
+        assert client.post("/api/planner/todos/td-h/history", json={"text": f"진행 {i}"}).status_code == 201
+    over = client.post("/api/planner/todos/td-h/history", json={"text": "하나 더"})
+    assert over.status_code == 409 and "50" in over.json()["detail"]

@@ -187,15 +187,9 @@ def test_restart_recovers_interrupted_work(settings, sample_dir):
         assert p["next_action"] == "retry" and "다시 시도" in p["next_action_label"]
 
         assert client.post(f"/api/sessions/{sid}/retry").status_code == 202
-        # 재시도가 끝나면 다시 적재된 자료가 새 자료로 반영되고(AI 작업이 한 번 더 돈다), 대화는 질문을 기다리는 상태로 돌아온다
-        p = wait_progress(
-            client,
-            sid,
-            # '새 자료 반영' 안내는 다음 질문에 붙이지 않고 질문 앞에 따로 보낸다
-            lambda p: p["status"] == "waiting" and p["next_action"] == "answer_question"
-            and any("새 자료" in m["content"] and m["kind"] == "info" for m in client.get(f"/api/sessions/{sid}/messages").json()),
-        )
-        assert p["current_question"] is not None and p["questions"]["asked"] >= 1
+        # 재시도가 끝나면 다시 적재된 자료가 질문의 답으로 해석되어 정리 확인을 기다리는 상태가 된다(전체 재분석은 하지 않는다)
+        p = wait_progress(client, sid, lambda p: p["status"] == "waiting" and p["next_action"] in ("answer_question", "confirm_answer"))
+        assert p["questions"]["asked"] >= 1
 
 
 def test_db_checkpointer_roundtrip_and_legacy_import(client, tmp_path):

@@ -14,15 +14,19 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..mock import confluence, jira, mattermost
-from ..models import FileBlob, HandoverSession, Source
+from ..models import FileBlob, HandoverSession, Source, User
 from ..schemas import ConfluenceImportIn, IntegrationImportResult, JiraImportIn, JiraMoveIn, MattermostImportIn, SourceOut
 from ..services.container import Services
-from .deps import get_db, get_services, load_session
+from .deps import get_db, get_services, load_session, optional_user
 
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 session_router = APIRouter(prefix="/api/sessions/{session_id}/integrations", tags=["integrations"])
 
 MOCK_NOTE = "가상 데이터입니다. 실제 Mattermost·Confluence·Jira 는 연동되어 있지 않습니다."
+
+
+def _team(user: User | None) -> str:
+    return user.profile.team if user is not None and user.profile else ""
 
 
 # ------------------------------------------------------------------ 조회(가상 Mattermost)
@@ -46,8 +50,10 @@ def confluence_search(
     q: str = Query("", max_length=100, description="검색어(띄어쓰기로 여러 개, 모두 포함)"),
     space: str = Query("", max_length=20, description="스페이스 키로 좁히기(비우면 전체)"),
     limit: int = Query(20, ge=1, le=50),
+    user: User | None = Depends(optional_user),
 ):
-    return {"mock": True, "note": MOCK_NOTE, **confluence.search_pages(q, space, limit)}
+    """로그인한 사용자의 팀(profile.team)에 맞는 팀 스페이스를 보여 준다(팀별 데이터가 없는 팀은 기본 스페이스)."""
+    return {"mock": True, "note": MOCK_NOTE, **confluence.search_pages(q, space, limit, team=_team(user))}
 
 
 @router.get("/confluence/pages/{page_id}", summary="Confluence 페이지 본문(가상)")
@@ -60,8 +66,9 @@ def confluence_page(page_id: str):
 
 # ------------------------------------------------------------------ 조회(가상 Jira)
 @router.get("/jira/projects", summary="Jira 프로젝트 목록과 진행 현황(가상): 현재 스프린트 진척·에픽별 진행률·담당자별 남은 일·막힌 이슈")
-def jira_projects():
-    return {"mock": True, "note": MOCK_NOTE, "today": jira.TODAY.isoformat(), "projects": jira.list_projects()}
+def jira_projects(user: User | None = Depends(optional_user)):
+    """로그인한 사용자의 팀(profile.team)에 맞는 프로젝트를 보여 준다(팀별 데이터가 없는 팀은 기본 프로젝트)."""
+    return {"mock": True, "note": MOCK_NOTE, "today": jira.TODAY.isoformat(), "projects": jira.list_projects(_team(user))}
 
 
 @router.get("/jira/search", summary="Jira 이슈 검색(가상): 검색어·프로젝트·상태·담당자·유형으로 거르기")
@@ -72,8 +79,9 @@ def jira_search(
     assignee: str = Query("", max_length=50),
     type: str = Query("", max_length=20, description="에픽 | 스토리 | 작업 | 버그 | 하위 작업"),
     limit: int = Query(100, ge=1, le=200),
+    user: User | None = Depends(optional_user),
 ):
-    return {"mock": True, "note": MOCK_NOTE, **jira.search_issues(q, project, status, assignee, type, limit)}
+    return {"mock": True, "note": MOCK_NOTE, **jira.search_issues(q, project, status, assignee, type, limit, team=_team(user))}
 
 
 @router.get("/jira/issues/{key}", summary="Jira 이슈 상세(가상): 설명·댓글·하위 이슈(에픽)·하위 작업")

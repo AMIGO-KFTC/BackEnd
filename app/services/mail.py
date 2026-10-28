@@ -68,6 +68,7 @@ class MailQuery:
     has_attachments: bool | None = None
     important: bool | None = None  # true 면 중요 표시한 메일만
     keywords: list[str] = field(default_factory=list)  # 단위업무명·설명에서 뽑은 낱말(관련도 정렬용)
+    team: str = ""  # 사용자의 팀(profile.team). 팀별 가상 메일함(team_mail.py)이 있으면 그걸, 없으면 기본 메일함을 쓴다
     page: int = 1
     size: int = 20
 
@@ -247,17 +248,19 @@ _SAMPLES = [
 
 
 class MockMailProvider:
-    """가상 메일 조회 API. 사용자마다 같은 예시 메일함을 돌려준다(날짜는 오늘 기준으로 맞춘다)."""
+    """가상 메일 조회 API. 사용자의 팀(MailQuery.team)에 따라 팀별 예시 메일함(team_mail.py), 없으면 기본 예시 메일함을 돌려준다(날짜는 오늘 기준)."""
 
     name = "mock"
 
     def __init__(self, now: datetime | None = None) -> None:
         self._now = now
 
-    def _messages(self, owner: MailAddress) -> list[MailMessage]:
+    def _messages(self, owner: MailAddress, team: str = "", samples: list | None = None) -> list[MailMessage]:
+        from .team_mail import TEAM_SAMPLES  # 순환 import 방지
+
         today = (self._now or datetime.now(KST)).astimezone(KST)
         out = []
-        for mid, days, hhmm, folder, sender, to, cc, subject, body, attachments, important in _SAMPLES:
+        for mid, days, hhmm, folder, sender, to, cc, subject, body, attachments, important in (samples if samples is not None else TEAM_SAMPLES.get(team.strip(), _SAMPLES)):
             hour, minute = (int(x) for x in hhmm.split(":"))
             sent_at = (today - timedelta(days=days)).replace(hour=hour, minute=minute, second=0, microsecond=0)
             if sent_at > today:  # 오늘 메일이 아직 오지 않은 시각이면 하루 앞당긴다
@@ -279,7 +282,13 @@ class MockMailProvider:
         return out
 
     def get(self, owner: MailAddress, message_id: str) -> MailMessage | None:
-        return next((m for m in self._messages(owner) if m.id == message_id), None)
+        from .team_mail import TEAM_SAMPLES
+
+        for samples in (_SAMPLES, *TEAM_SAMPLES.values()):  # 메일 ID 는 팀 접두어로 겹치지 않는다
+            found = next((m for m in self._messages(owner, samples=samples) if m.id == message_id), None)
+            if found:
+                return found
+        return None
 
     def search(self, owner: MailAddress, query: MailQuery) -> MailPage:
         terms = [t.lower() for t in query.q.split() if t]
@@ -287,7 +296,7 @@ class MockMailProvider:
         subject_terms = [t.lower() for t in query.subject.split() if t]
         person = query.person.strip().lower()
         hits: list[tuple[MailMessage, int]] = []
-        for m in self._messages(owner):
+        for m in self._messages(owner, query.team):
             if query.folder and m.folder != query.folder:
                 continue
             if query.date_from and m.sent_at < query.date_from:

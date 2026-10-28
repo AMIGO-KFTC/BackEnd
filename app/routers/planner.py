@@ -7,7 +7,9 @@ id 는 화면이 만들어 보낼 수 있고(계정 안에서만 유일), 같은
 
 from __future__ import annotations
 
+import json
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import delete, func, select
@@ -23,6 +25,9 @@ from ..schemas import (
     PlannerEventIn,
     PlannerEventOut,
     PlannerEventResult,
+    PlannerHistoryIn,
+    PlannerHistoryOut,
+    PlannerHistoryResult,
     PlannerImportIn,
     PlannerItemUpdate,
     PlannerOut,
@@ -43,6 +48,7 @@ router = APIRouter(prefix="/api/planner", tags=["planner"])
 
 MAX_EVENTS = 5000  # 계정당 저장할 수 있는 수(실수로 끝없이 쌓이지 않게)
 MAX_TODOS = 5000
+MAX_HISTORY = 50  # 할 일 하나에 남길 수 있는 진행 이력 수
 TOO_MANY = "더 저장할 수 없습니다. 지난 일정이나 완료한 할 일을 지운 뒤 다시 시도해 주세요."
 
 
@@ -50,8 +56,17 @@ def _event_out(row: PlannerEvent) -> PlannerEventOut:
     return PlannerEventOut(id=row.key, date=row.date, text=row.text, memo=row.memo or "", done=bool(row.done))
 
 
+def _history_of(row: PlannerTodo) -> list[dict]:
+    try:
+        items = json.loads(row.history_json or "[]")
+    except ValueError:
+        return []
+    return [i for i in items if isinstance(i, dict) and i.get("id") and i.get("text")] if isinstance(items, list) else []
+
+
 def _todo_out(row: PlannerTodo) -> PlannerTodoOut:
-    return PlannerTodoOut(id=row.key, text=row.text, done=bool(row.done), date=row.date, memo=row.memo or "")
+    history = [PlannerHistoryOut(id=str(i["id"]), text=str(i["text"]), created_at=str(i.get("created_at", ""))) for i in _history_of(row)]
+    return PlannerTodoOut(id=row.key, text=row.text, done=bool(row.done), date=row.date, memo=row.memo or "", history=history)
 
 
 def _routine_out(row: PlannerRoutine) -> PlannerRoutineOut:
@@ -248,6 +263,20 @@ def update_todo(todo_id: str, body: PlannerTodoUpdate, user: User = Depends(curr
         row.memo = body.memo or ""
     db.commit()
     return PlannerTodoResult(message="할 일을 고쳤습니다.", todo=_todo_out(row))
+
+
+@router.post("/todos/{todo_id}/history", response_model=PlannerHistoryResult, status_code=201, summary="업무 진행 이력 한 줄 추가(할 일마다 최대 50개, 오래된 것부터 쌓인다)")
+def add_todo_history(todo_id: str, body: PlannerHistoryIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    row = _find(db, PlannerTodo, user, todo_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="할 일을 찾을 수 없습니다.")
+    items = _history_of(row)
+    if len(items) >= MAX_HISTORY:
+        raise HTTPException(status_code=409, detail=f"진행 이력은 업무마다 {MAX_HISTORY}개까지 남길 수 있습니다.")
+    entry = {"id": uuid.uuid4().hex, "text": body.text, "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    row.history_json = json.dumps([*items, entry], ensure_ascii=False)
+    db.commit()
+    return PlannerHistoryResult(message="진행 이력을 저장했습니다.", entry=PlannerHistoryOut(**entry), todo=_todo_out(row))
 
 
 @router.delete("/todos/{todo_id}", response_model=Result, summary="할 일 삭제")

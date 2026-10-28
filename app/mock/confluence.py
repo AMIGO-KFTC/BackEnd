@@ -332,7 +332,21 @@ PAGES: list[Page] = [
     ),
 ]
 
+DEFAULT_SPACES = set(SPACES)  # 기본(팀을 모를 때) 스페이스
+
+from . import team_wiki  # noqa: E402  팀별 스페이스·페이지를 더한다(IT개발팀·디지털사업팀·법무팀·카드운영팀·기획조정팀)
+
+SPACES.update(dict(team_wiki.TEAM_SPACES.values()))
+PAGES += team_wiki.PAGES
 _BY_ID = {p.id: p for p in PAGES}
+
+
+def visible_spaces(team: str = "") -> dict[str, str]:
+    """사용자의 팀이 보는 스페이스. 팀별 데이터가 있는 팀은 그 팀 스페이스, 아니면 기본 스페이스."""
+    if team == "*":  # 가상 위키 화면(/wiki)은 로그인 없이 모든 스페이스를 보여 준다
+        return dict(SPACES)
+    own = team_wiki.TEAM_SPACES.get((team or "").strip())
+    return {own[0]: own[1]} if own else {k: v for k, v in SPACES.items() if k in DEFAULT_SPACES}
 
 
 def _terms(query: str) -> list[str]:
@@ -357,12 +371,13 @@ def _excerpt(markdown: str, terms: list[str], width: int = 180) -> str:
     return ("…" if start > 0 else "") + snippet + ("…" if start + width < len(text) else "")
 
 
-def search_pages(query: str, space: str = "", limit: int = 20) -> dict[str, Any]:
+def search_pages(query: str, space: str = "", limit: int = 20, team: str = "") -> dict[str, Any]:
     """검색어(띄어쓰기로 여러 개)를 모두 포함하는 페이지를 제목 일치 → 최근 수정 순으로 돌려준다."""
     terms = _terms(query)
     rows: list[tuple[int, Page]] = []
+    visible = visible_spaces(team)
     for page in PAGES:
-        if space and page.space != space:
+        if page.space not in visible or (space and page.space != space):
             continue
         hay_title, hay_body, hay_labels = page.title.lower(), page.body.lower(), " ".join(page.labels).lower()
         if terms and not all(t in hay_title or t in hay_body or t in hay_labels for t in terms):
@@ -377,7 +392,7 @@ def search_pages(query: str, space: str = "", limit: int = 20) -> dict[str, Any]
         item["matched_in"] = [k for k, hay in (("title", page.title.lower()), ("labels", " ".join(page.labels).lower()), ("body", page.body.lower())) if any(t in hay for t in terms)]
         item["score"] = score
         results.append(item)
-    return {"query": query.strip(), "terms": terms, "total": len(rows), "results": results, "spaces": [{"key": k, "name": v} for k, v in SPACES.items()]}
+    return {"query": query.strip(), "terms": terms, "total": len(rows), "results": results, "spaces": [{"key": k, "name": v} for k, v in visible.items()]}
 
 
 def get_page(page_id: str) -> Page | None:
