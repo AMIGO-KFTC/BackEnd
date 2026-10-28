@@ -52,6 +52,16 @@ def org_duties(path: str | None = None) -> dict[str, Any]:
     return _load(path or os.getenv("AMIGO_ORG_DUTIES_FILE") or str(DEFAULT_FILE))
 
 
+def team_options(path: str | None = None) -> list[dict[str, Any]]:
+    """회원가입에서 고를 본부·팀 목록(업무는 빼고 이름만): [{name, teams: [팀 이름]}]."""
+    return [{"name": row["name"], "teams": [t["name"] for t in row["teams"]]} for row in org_duties(path)["divisions"]]
+
+
+def has_team(division: str, team: str, path: str | None = None) -> bool:
+    """직제규정 시행세칙에 있는 본부·팀 조합인지."""
+    return any(row["name"] == division.strip() and any(t["name"] == team.strip() for t in row["teams"]) for row in org_duties(path)["divisions"])
+
+
 def team_duties(division: str, team: str, path: str | None = None) -> list[str]:
     """본부·부와 팀의 단위업무 목록(없으면 빈 목록)."""
     for row in org_duties(path)["divisions"]:

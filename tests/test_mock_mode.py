@@ -88,7 +88,7 @@ def test_full_flow_with_virtual_ai(mock_client):
     labels = {c["label"] for slot in session["slots"].values() for item in slot["items"] for c in item["citations"]}
     assert labels and all(label.split(" ")[0] in ("업무정의서.pdf", "운영매뉴얼.hwpx") for label in labels)  # 실제로 읽힌 자료만 근거로
     assert "업무정의서.pdf p.1" in labels
-    assert p["questions"]["total"] == 12 and "유지보수 실적 검수" in p["current_question"]["content"]  # 양식 순서: 첫 세부업무부터(부서 인수인계 목록 질문 3개 포함)
+    assert p["questions"]["total"] == 9 and "유지보수 실적 검수" in p["current_question"]["content"]  # 양식 순서: 첫 세부업무부터(부서 인수인계 목록 질문 3개는 팀장 양식에만 있어 팀원 세션에는 없다)
 
     # 답변 → 확인 요청 → 고쳐 말하기 → 다시 확인 → 네
     mock_client.post(f"/api/sessions/{sid}/chat", json={"text": "내선 2345 입니다"})

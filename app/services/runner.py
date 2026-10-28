@@ -25,7 +25,7 @@ from sqlalchemy import select
 
 from ..models import FileBlob, HandoverSession, Message, Source, UnitTask, utcnow
 from .documents import record_ai_document
-from .department_notes import department_notes_for
+from .department_notes import office_dept_notes
 from .guidelines import guidelines_for
 
 if TYPE_CHECKING:
@@ -108,7 +108,7 @@ class JobRunner:
             guidelines = guidelines_for(db, row.organization)  # 팀 관리자가 정한 인수인계서 지침(없으면 None)
             if guidelines:
                 profile["team_guidelines"] = guidelines
-            dept_notes = department_notes_for(row.organization)  # 부·팀 인수인계 목록(없으면 None): 분석·질문·대화에 반영한다
+            dept_notes = office_dept_notes(row)  # 부·팀 인수인계 목록(없으면 None): 팀장(원내 양식) 인수인계서의 분석·질문·대화에만 반영한다
             if dept_notes:
                 profile["dept_notes"] = dept_notes
         kb, agent = self.services.kb(session_id), self.services.agent
@@ -142,7 +142,7 @@ class JobRunner:
                 return
             patch = {
                 "team_guidelines": guidelines_for(db, row.organization),
-                "dept_notes": department_notes_for(row.organization),
+                "dept_notes": office_dept_notes(row),
                 "form": row.form or "standard",
             }
         try:

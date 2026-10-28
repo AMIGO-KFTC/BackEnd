@@ -110,3 +110,28 @@ def test_mock_agent_names_overview_items_after_selected_units(mock_client):
         time.sleep(0.05)
     names = [item["fields"]["name"] for item in session["slots"]["overview"]["items"]]
     assert names == ["기관 홈페이지 운영", "웹 접근성 관리", "SNS 채널 관리"]
+
+
+def test_signup_can_assign_a_team_so_units_show_without_editing_my_info(client):
+    """회원가입에서 본부·팀을 고르면 내 정보를 따로 고치지 않아도 팀 배정이 되어 있다."""
+    options = client.get("/api/auth/org-teams").json()  # 로그인 없이 볼 수 있다
+    assert options["success"] and {"디지털전략부", "사업본부"} <= {d["name"] for d in options["divisions"]}
+    business = next(d for d in options["divisions"] if d["name"] == "사업본부")
+    assert "오픈지로사업팀" in business["teams"] and "duties" not in str(options)  # 업무는 로그인한 뒤 /api/org-duties 로 본다
+
+    body = {"login_id": "teamuser", "password": "Abcd1234!x", "name": "배정", "department": "사업본부", "team": "오픈지로사업팀"}
+    assert client.post("/api/auth/signup", json=body).status_code == 201
+    me = client.post("/api/auth/login", json={"login_id": "teamuser", "password": "Abcd1234!x"})
+    assert me.status_code == 200
+    profile = client.get("/api/auth/me").json()["user"]["profile"]
+    assert profile["department"] == "사업본부" and profile["team"] == "오픈지로사업팀" and profile["name"] == "배정"
+    duties = next(t for d in client.get("/api/org-duties").json()["divisions"] if d["name"] == "사업본부" for t in d["teams"] if t["name"] == "오픈지로사업팀")["duties"]
+    assert "오픈지로업무 기획 및 추진" in duties
+
+
+def test_signup_rejects_unknown_team_and_stays_optional(client):
+    bad = client.post("/api/auth/signup", json={"login_id": "badteam", "password": "Abcd1234!x", "name": "오류", "department": "사업본부", "team": "없는팀"})
+    assert bad.status_code == 400 and "본부·팀" in bad.json()["detail"]
+    assert client.post("/api/auth/signup", json={"login_id": "badteam", "password": "Abcd1234!x", "name": "오류", "team": "웹서비스팀"}).status_code == 400  # 본부 없이 팀만
+    ok = client.post("/api/auth/signup", json={"login_id": "noteam", "password": "Abcd1234!x", "name": "무배정"})  # 예전처럼 팀 없이도 가입된다
+    assert ok.status_code == 201 and ok.json()["user"]["profile"] is None
