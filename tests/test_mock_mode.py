@@ -84,7 +84,7 @@ def test_full_flow_with_virtual_ai(mock_client):
     assert files["설치.exe"]["status"] == "failed"  # 확장자 검사는 실제와 같다
 
     session = mock_client.get(f"/api/sessions/{sid}").json()
-    assert set(session["slots"]) == {"overview", "regular", "partners", "irregular", "milestones", "stakeholders", "systems", "dept_notes"}
+    assert set(session["slots"]) == {"overview", "regular", "partners", "irregular", "milestones", "stakeholders", "systems"}  # 부서별 추가 자료는 분석하지 않고 파일만 올린다
     labels = {c["label"] for slot in session["slots"].values() for item in slot["items"] for c in item["citations"]}
     assert labels and all(label.split(" ")[0] in ("업무정의서.pdf", "운영매뉴얼.hwpx") for label in labels)  # 실제로 읽힌 자료만 근거로
     assert "업무정의서.pdf p.1" in labels

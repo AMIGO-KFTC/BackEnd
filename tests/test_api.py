@@ -36,8 +36,8 @@ def test_full_flow_upload_analyze_chat_generate_download(client, sample_dir):
     state = wait_for(client, sid, lambda s: s["status"] == "waiting")
     session = state["session"]
     assert session["stage"] == "qna" and session["engine"] == "offline"
-    assert set(session["slots"]) == {"overview", "regular", "partners", "irregular", "milestones", "stakeholders", "systems", "dept_notes"}
-    assert session["progress"]["current"] == session["progress"]["total"] == 8
+    assert set(session["slots"]) == {"overview", "regular", "partners", "irregular", "milestones", "stakeholders", "systems"}  # 부서별 추가 자료는 분석하지 않고 파일만 올린다
+    assert session["progress"]["current"] == session["progress"]["total"] == 7  # 부서별 추가 자료는 분석하지 않는다
     kinds = [m["kind"] for m in state["messages"]]
     assert kinds[0] == "info" and "summary" in kinds and kinds[-1] == "question"
     question = state["messages"][-1]

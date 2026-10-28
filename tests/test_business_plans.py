@@ -209,3 +209,23 @@ def test_dept_files_update_ai_version_in_place_or_add_user_version(mock_client, 
     # 스냅숏 동기화가 직접 고친 문서를 덮어쓰지 않는다
     mock_client.app.state.services.runner._sync_snapshot(sid)
     assert mock_client.get(f"/api/sessions/{sid}/document").json()["version"] == 3
+
+
+def test_replace_dept_table_swaps_only_the_upload_table_in_staff_documents():
+    """팀원 문서(기타 자료 > 부서별 추가 자료)도 업로드 표만 바꾸고, 직접 고친 다른 글은 그대로 둔다."""
+    from app.services.documents import replace_dept_table
+
+    edited = "## 3. 기타 자료\n\n### 부서별 추가 자료\n\n직접 쓴 안내\n\n| 추가자료 | 등록 여부 |\n|---|---|\n| 계약 명세표 | 자료 등록 필요 |\n\n끝 문장\n"
+    rendered = "## 3. 기타 자료\n\n### 부서별 추가 자료\n\nAI 안내\n\n| 추가자료 | 등록 여부 |\n|---|---|\n| 계약 명세표 | 등록됨: a.pdf |\n"
+    merged = replace_dept_table(edited, rendered)
+    assert "| 계약 명세표 | 등록됨: a.pdf |" in merged and "직접 쓴 안내" in merged and "끝 문장" in merged and "AI 안내" not in merged
+
+
+def test_dept_file_items_only_for_team_lead_form():
+    from types import SimpleNamespace
+
+    from app.services.department_notes import dept_file_items
+
+    assert dept_file_items(SimpleNamespace(organization="지급결제본부 · 지로업무팀", form="office"))[0] == "지로 이용기관 승인 현황표"
+    assert dept_file_items(SimpleNamespace(organization="지급결제본부 · 지로업무팀", form="standard")) == []  # 팀원 문서에는 싣지 않는다
+    assert dept_file_items(SimpleNamespace(organization="없는 팀", form="standard")) == []

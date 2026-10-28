@@ -57,6 +57,14 @@ def office_dept_notes(row: Any, path: str | None = None) -> dict[str, Any] | Non
     return department_notes_for(row.organization, path)
 
 
+def dept_file_items(row: Any, path: str | None = None) -> list[str]:
+    """부서별 추가자료로 파일을 올릴 항목(소속 부·팀 인수인계 목록의 서류·물품). 팀장(원내 양식) 인수인계서에만 업로드 표로 싣는다(AI 는 채우지 않는다)."""
+    if (getattr(row, "form", "") or "standard") != "office":
+        return []
+    info = department_notes_for(getattr(row, "organization", "") or "", path)
+    return list(info["items"]) if info else []
+
+
 def department_notes_for(organization: str, path: str | None = None) -> dict[str, Any] | None:
     """소속(부 + 팀)의 인수인계 목록과 다른 부·팀의 목록. 소속 비교는 공백·가운뎃점을 같게 본다. 목록·비고가 모두 비어 있거나 없으면 None."""
     key = organization_key(organization)

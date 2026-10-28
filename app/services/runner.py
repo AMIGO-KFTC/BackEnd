@@ -25,7 +25,7 @@ from sqlalchemy import select
 
 from ..models import FileBlob, HandoverSession, Message, Source, UnitTask, utcnow
 from .documents import record_ai_document
-from .department_notes import office_dept_notes
+from .department_notes import dept_file_items, office_dept_notes
 from .guidelines import guidelines_for
 
 if TYPE_CHECKING:
@@ -111,6 +111,7 @@ class JobRunner:
             dept_notes = office_dept_notes(row)  # 부·팀 인수인계 목록(없으면 None): 팀장(원내 양식) 인수인계서의 분석·질문·대화에만 반영한다
             if dept_notes:
                 profile["dept_notes"] = dept_notes
+            profile["dept_items"] = dept_file_items(row)  # 부서별 추가자료: 인계자가 항목별로 파일만 올린다(모든 양식)
         kb, agent = self.services.kb(session_id), self.services.agent
         self.run_agent(session_id, "analyze", lambda h: agent.start(session_id, profile, kb, on_event=h), progress="자료를 분석하고 있어요.")
 
@@ -144,7 +145,8 @@ class JobRunner:
                 "team_guidelines": guidelines_for(db, row.organization),
                 "dept_notes": office_dept_notes(row),
                 "form": row.form or "standard",
-                "dept_uploads": row.dept_uploads,  # 부서·팀별 추가자료(16장)로 올린 파일 이름
+                "dept_items": dept_file_items(row),  # 부서별 추가자료 항목(팀 인수인계 목록, 모든 양식)
+                "dept_uploads": row.dept_uploads,  # 부서별 추가자료로 올린 파일 이름
             }
         try:
             self.services.agent.update_profile(session_id, patch)

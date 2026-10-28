@@ -143,6 +143,31 @@ def replace_section(edited: str, rendered: str, heading: str = DEPT_FILES_HEADIN
     return merged + "\n" if edited.endswith("\n") and not merged.endswith("\n") else merged
 
 
+DEPT_TABLE_HEAD = "| 추가자료 | 등록 여부 |"  # 부서별 추가자료 업로드 표(amigo_agent.render._render_dept_uploads)
+
+
+def replace_dept_table(edited: str, rendered: str) -> str:
+    """직접 고친 문서의 부서별 추가자료 업로드 표만 AI 가 다시 그린 표로 바꾼다(팀장 16장, 팀원 기타 자료 > 부서별 추가 자료 모두).
+    직접 고친 문서에 표가 없으면 팀장 16장 단위로 바꾼다(replace_section)."""
+    def span(lines: list[str]) -> tuple[int, int] | None:
+        start = next((i for i, line in enumerate(lines) if line.strip() == DEPT_TABLE_HEAD), None)
+        if start is None:
+            return None
+        end = start
+        while end < len(lines) and lines[end].lstrip().startswith("|"):
+            end += 1
+        return start, end
+
+    new_lines = rendered.splitlines()
+    new_span = span(new_lines)
+    lines = edited.splitlines()
+    old_span = span(lines)
+    if new_span is None or old_span is None:
+        return replace_section(edited, rendered)
+    merged = "\n".join([*lines[: old_span[0]], *new_lines[new_span[0] : new_span[1]], *lines[old_span[1] :]])
+    return merged + "\n" if edited.endswith("\n") and not merged.endswith("\n") else merged
+
+
 def backfill_versions(session_factory: sessionmaker) -> int:
     """버전 기록이 생기기 전에 만든 문서(sessions.document_md)를 첫 버전으로 옮긴다. 옮긴 세션 수를 돌려준다."""
     with session_factory() as db:

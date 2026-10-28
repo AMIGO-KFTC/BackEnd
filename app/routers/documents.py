@@ -34,7 +34,7 @@ from ..schemas import (
 )
 from ..services.container import Services
 from ..services.department_notes import department_notes_for
-from ..services.documents import ORIGIN_LABELS, add_version, latest_version, merge_gantt_rows, replace_section
+from ..services.documents import ORIGIN_LABELS, add_version, latest_version, merge_gantt_rows, replace_dept_table
 from ..services.exporters import strip_citation_marks, to_docx, to_pdf
 from .deps import current_user, get_db, get_services, load_session, optional_user
 from .sources import store_uploads
@@ -268,7 +268,7 @@ async def upload_dept_files(
     if current is not None and current.origin == "ai" and current.version == row.document_version:
         current.markdown = row.document_md = rendered
     else:
-        merged = replace_section(row.document_md, rendered)
+        merged = replace_dept_table(row.document_md, rendered)
         if merged != row.document_md:
             add_version(db, row, merged, origin="user", based_on=row.document_version, note="부서별 추가자료 등록", author=user)
     row.ai_document_md = rendered  # AI 가 다시 그린 문서는 이미 반영했으므로 스냅숏 동기화가 따로 쌓지 않게
