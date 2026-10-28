@@ -18,6 +18,8 @@ def test_login_required(client):
     assert client.post("/api/planner/todos", json={"text": "보고서"}).status_code == 401
     assert client.patch("/api/planner/todos/x", json={"done": True}).status_code == 401
     assert client.post("/api/planner/import", json={}).status_code == 401
+    assert client.post("/api/planner/onetel/import").status_code == 401
+    assert client.get("/api/planner/onetel/events").status_code == 401
 
 
 def test_events_and_todos_round_trip(client):
@@ -167,3 +169,41 @@ def test_memo_on_event_week_task_and_todo(client):
     assert client.patch("/api/planner/events/e1", json={"done": True}).json()["event"]["done"] is True  # 체크리스트
     assert client.patch("/api/planner/week-tasks/w1", json={"done": True}).json()["task"]["done"] is True
     assert client.get("/api/planner").json()["events"][0]["done"] is True
+
+
+def test_onetel_import_adds_sample_events_once_per_account(client):
+    login(client)
+    first = client.post("/api/planner/onetel/import")
+    assert first.status_code == 200
+    body = first.json()
+    assert body["success"] is True and body["events"] == 7 and body["skipped"] == 0 and "7건" in body["message"]
+    events = client.get("/api/planner").json()["events"]
+    assert len(events) == 7 and all(e["text"].startswith("[원텔] ") for e in events)
+    assert any("오픈지로 회비 정산 마감" in e["text"] for e in events)
+
+    again = client.post("/api/planner/onetel/import").json()  # 다시 눌러도 두 번 쌓이지 않는다
+    assert again["events"] == 0 and again["skipped"] == 7 and "이미" in again["message"]
+    assert len(client.get("/api/planner").json()["events"]) == 7
+
+    login(client, "other.user")  # 다른 계정은 자기 캘린더에 따로 받는다
+    assert client.post("/api/planner/onetel/import").json()["events"] == 7
+
+
+def test_onetel_modal_lists_events_and_imports_only_the_chosen_ones(client):
+    login(client)
+    listed = client.get("/api/planner/onetel/events").json()
+    assert listed["success"] is True and len(listed["events"]) == 7 and not any(e["imported"] for e in listed["events"])
+    assert all(e["id"] and e["date"] and e["text"].startswith("[원텔] ") for e in listed["events"])
+
+    chosen = [listed["events"][0]["id"], listed["events"][2]["id"]]
+    body = client.post("/api/planner/onetel/import", json={"ids": chosen}).json()
+    assert body["events"] == 2 and body["skipped"] == 0
+    assert [e["imported"] for e in client.get("/api/planner/onetel/events").json()["events"]] == [True, False, True, False, False, False, False]
+    assert len(client.get("/api/planner").json()["events"]) == 2  # 고른 것만 들어온다
+
+    again = client.post("/api/planner/onetel/import", json={"ids": chosen}).json()  # 고른 것이 이미 있으면 건너뜀
+    assert again["events"] == 0 and again["skipped"] == 2
+    assert client.post("/api/planner/onetel/import", json={"ids": []}).json()["message"] == "가져올 일정을 골라 주세요."
+    assert client.post("/api/planner/onetel/import", json={"ids": ["nope"]}).status_code == 404
+    rest = client.post("/api/planner/onetel/import", json={"ids": None}).json()  # ids 를 비우면(null) 나머지 모두
+    assert rest["events"] == 5 and rest["skipped"] == 2

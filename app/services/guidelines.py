@@ -35,12 +35,25 @@ def stored_items(row: TeamGuideline | None) -> list[dict[str, Any]]:
     return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
 
 
+def stored_glossary(row: TeamGuideline | None) -> list[dict[str, Any]]:
+    """저장된 업무 용어집(화면용). 깨진 값은 빈 목록으로 본다."""
+    if row is None:
+        return []
+    try:
+        terms = json.loads(row.glossary_json or "[]")
+    except ValueError:
+        return []
+    return [t for t in terms if isinstance(t, dict)] if isinstance(terms, list) else []
+
+
 def agent_guidelines(row: TeamGuideline | None) -> dict[str, Any] | None:
     """에이전트에 넘길 지침(profile["team_guidelines"]). 비어 있으면 None."""
     if row is None:
         return None
-    cleaned = clean_team_guidelines({"items": stored_items(row), "notes": row.notes, "prompt": row.prompt or ""})
-    return cleaned if cleaned["items"] or cleaned["notes"] or cleaned["prompt"] else None
+    cleaned = clean_team_guidelines(
+        {"items": stored_items(row), "notes": row.notes, "prompt": row.prompt or "", "intro": row.intro or "", "glossary": stored_glossary(row)}
+    )
+    return cleaned if any(cleaned[key] for key in ("items", "notes", "prompt", "intro", "glossary")) else None
 
 
 def guidelines_for(db: Session, organization: str) -> dict[str, Any] | None:

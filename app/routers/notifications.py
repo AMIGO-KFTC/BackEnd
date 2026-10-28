@@ -1,25 +1,67 @@
-"""알림: 받은 인수인계서(새로 도착 · 인계자가 고친 새 버전)를 알림으로 보여 주고, 확인(읽음)·지우기·모두 확인을 계정별로 저장한다.
+"""알림: 받은 인수인계서(새로 도착 · 인계자가 고친 새 버전)와 캘린더 마감 임박을 알림으로 보여 주고, 확인(읽음)·지우기·모두 확인을 계정별로 저장한다.
 
 알림 ID 는 'transfer:<전송 ID>:v<문서 버전>' 이다. 인계자가 보낸 뒤 문서를 고쳐 버전이 오르면 새 알림이 생긴다.
 인수자가 받은 인수인계서를 이미 열어 봤으면(handover_transfers.read_at) 그 버전의 알림은 확인한 것으로 본다.
+마감 임박 알림은 날짜가 있는 캘린더 일정·할 일(다 하지 않은 것)이 DUE_SOON_DAYS(7일) 안으로 다가오면 마감일까지 보인다.
+ID 는 'due:event:<일정 ID>:<날짜>' · 'due:todo:<할 일 ID>:<날짜>' 라서 날짜를 옮기면 새 알림이 생긴다.
 """
 
 from __future__ import annotations
+
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import HandoverTransfer, NotificationState, User, utcnow
+from ..models import HandoverTransfer, NotificationState, PlannerEvent, PlannerTodo, User, utcnow
 from ..schemas import NotificationIdsIn, NotificationOut, NotificationsOut
 from .deps import as_utc, current_user, get_db
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
 MAX_NOTIFICATIONS = 100
+DUE_SOON_DAYS = 7  # 마감 일주일 전부터 알린다
 
 
-def _build(db: Session, user: User) -> list[NotificationOut]:
+def _days_label(days: int) -> str:
+    return "오늘이에요" if days == 0 else "내일이에요" if days == 1 else f"{days}일 남았어요"
+
+
+def _due_soon(db: Session, user: User, states: dict[str, NotificationState], today: date) -> list[NotificationOut]:
+    """날짜가 있는 일정·할 일(다 하지 않은 것) 중 마감이 오늘부터 DUE_SOON_DAYS 일 안인 것."""
+    out: list[NotificationOut] = []
+    events = db.scalars(select(PlannerEvent).where(PlannerEvent.user_id == user.id, PlannerEvent.done.is_(False))).all()
+    todos = db.scalars(select(PlannerTodo).where(PlannerTodo.user_id == user.id, PlannerTodo.done.is_(False), PlannerTodo.date.is_not(None))).all()
+    for kind, rows in (("event", events), ("todo", todos)):
+        for row in rows:
+            try:
+                due = date.fromisoformat(row.date or "")
+            except ValueError:
+                continue
+            days = (due - today).days
+            if not 0 <= days <= DUE_SOON_DAYS:
+                continue
+            key = f"due:{kind}:{row.key}:{row.date}"
+            state = states.get(key)
+            if state is not None and state.dismissed_at is not None:
+                continue
+            out.append(
+                NotificationOut(
+                    id=key,
+                    kind="due",
+                    session_id=None,
+                    title="마감이 다가오고 있어요",
+                    text=f"‘{row.text}’ 마감이 {_days_label(days)} ({due.month}월 {due.day}일)",
+                    task_name=row.text,
+                    created_at=datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc),  # 오늘 알린 것으로 보이게(지난 알림처럼 '4일 전'이라 뜨지 않게)
+                    read=state is not None and state.read_at is not None,
+                )
+            )
+    return out
+
+
+def _build(db: Session, user: User, today: date | None = None) -> list[NotificationOut]:
     states = {s.key: s for s in db.scalars(select(NotificationState).where(NotificationState.user_id == user.id))}
     transfers = db.scalars(select(HandoverTransfer).where(HandoverTransfer.recipient_id == user.id).order_by(HandoverTransfer.created_at.desc())).all()
     out: list[NotificationOut] = []
@@ -47,6 +89,7 @@ def _build(db: Session, user: User) -> list[NotificationOut]:
                 read=opened or (state is not None and state.read_at is not None),
             )
         )
+    out += _due_soon(db, user, states, today or date.today())
     out.sort(key=lambda n: n.created_at, reverse=True)
     return out[:MAX_NOTIFICATIONS]
 

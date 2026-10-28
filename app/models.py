@@ -69,8 +69,26 @@ class TeamGuideline(Base):
     items_json: Mapped[str] = mapped_column(Text, default="[]")  # [{id, name, instruction}]
     notes: Mapped[str] = mapped_column(Text, default="")
     prompt: Mapped[str] = mapped_column(Text, default="")  # 팀 전용 프롬프트(AI 가 항상 따라야 하는 역할과 판단 기준)
+    intro: Mapped[str] = mapped_column(Text, default="")  # AI 팀 맞춤 설정 STEP1: 팀 소개(3줄 이내)
+    glossary_json: Mapped[str] = mapped_column(Text, default="[]")  # STEP2: 업무 용어집 [{term, meaning}]
     updated_by: Mapped[str] = mapped_column(String(50), default="")
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class TeamDocument(Base):
+    """AI 팀 맞춤 설정 STEP3: 팀 공통 업무 자료(업무정의서·업무분장표 등). 소속(부서 + 팀)마다 올려 두고, 원본 바이트는 이 행에 함께 둔다."""
+
+    __tablename__ = "team_documents"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    organization: Mapped[str] = mapped_column(String(100), index=True)  # organization_key 로 맞춘 소속
+    name: Mapped[str] = mapped_column(String(300))
+    extension: Mapped[str] = mapped_column(String(20), default="")
+    size: Mapped[int] = mapped_column(default=0)
+    content_type: Mapped[str] = mapped_column(String(200), default="application/octet-stream")
+    content: Mapped[bytes] = mapped_column(LargeBinary)
+    uploaded_by: Mapped[str] = mapped_column(String(50), default="")
+    uploaded_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
 class TeamDuty(Base):
