@@ -49,3 +49,31 @@ def test_read_dismiss_and_new_version(mock_client):
 
 def test_notifications_need_login(mock_client):
     assert mock_client.get("/api/notifications").status_code == 401
+
+
+def test_due_soon_notifies_one_week_before_the_deadline(mock_client):
+    from datetime import date, timedelta
+
+    login(mock_client, "demo")
+    base = len(mock_client.get("/api/notifications").json()["notifications"])  # 시드: 받은 인수인계서 알림
+    today = date.today()
+    soon, far, past = (today + timedelta(days=3)).isoformat(), (today + timedelta(days=8)).isoformat(), (today - timedelta(days=1)).isoformat()
+    mock_client.post("/api/planner/events", json={"id": "e-soon", "date": soon, "text": "수수료 정산 마감"})
+    mock_client.post("/api/planner/events", json={"id": "e-far", "date": far, "text": "아직 먼 일정"})
+    mock_client.post("/api/planner/events", json={"id": "e-past", "date": past, "text": "지난 일정"})
+    mock_client.post("/api/planner/events", json={"id": "e-week", "date": (today + timedelta(days=7)).isoformat(), "text": "딱 일주일 전"})
+    mock_client.post("/api/planner/todos", json={"id": "t-soon", "text": "보고서 제출", "date": today.isoformat()})
+    mock_client.post("/api/planner/todos", json={"id": "t-none", "text": "날짜 없는 할 일"})
+
+    body = mock_client.get("/api/notifications").json()
+    due = [n for n in body["notifications"] if n["kind"] == "due"]
+    assert len(body["notifications"]) == base + 3 and {n["task_name"] for n in due} == {"수수료 정산 마감", "딱 일주일 전", "보고서 제출"}
+    assert next(n for n in due if n["task_name"] == "보고서 제출")["text"].endswith("마감이 오늘이에요 (" + f"{today.month}월 {today.day}일)")
+    assert all(not n["read"] and n["session_id"] is None for n in due)
+
+    # 다 한 일정은 알리지 않고, 확인·지우기도 다른 알림처럼 동작한다
+    mock_client.patch("/api/planner/events/e-soon", json={"done": True})
+    due_ids = [n["id"] for n in mock_client.get("/api/notifications").json()["notifications"] if n["kind"] == "due"]
+    assert len(due_ids) == 2
+    body = mock_client.post("/api/notifications/dismiss", json={"ids": [due_ids[0]]}).json()
+    assert len([n for n in body["notifications"] if n["kind"] == "due"]) == 1

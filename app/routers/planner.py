@@ -15,6 +15,10 @@ from sqlalchemy.orm import Session
 
 from ..models import PlannerEvent, PlannerRoutine, PlannerTodo, PlannerWeekTask, User
 from ..schemas import (
+    OnetelEventOut,
+    OnetelEventsOut,
+    OnetelImportIn,
+    OnetelImportResult,
     PlannerCleared,
     PlannerEventIn,
     PlannerEventOut,
@@ -32,6 +36,7 @@ from ..schemas import (
     PlannerWeekTaskResult,
     Result,
 )
+from ..services.onetel_mock import import_onetel_events, list_onetel_events
 from .deps import current_user, get_db
 
 router = APIRouter(prefix="/api/planner", tags=["planner"])
@@ -101,6 +106,27 @@ def _add_todo(db: Session, user: User, body: PlannerTodoIn) -> tuple[PlannerTodo
 @router.get("", response_model=PlannerOut, summary="내 캘린더 일정과 할 일 전체")
 def get_planner(user: User = Depends(current_user), db: Session = Depends(get_db)):
     return _planner(db, user)
+
+
+@router.get("/onetel/events", response_model=OnetelEventsOut, summary="원텔 캘린더에서 가져올 수 있는 일정 목록(예시 데이터)과 이미 내 캘린더에 있는지")
+def list_onetel(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return OnetelEventsOut(events=[OnetelEventOut(id=key, date=day, text=text, imported=have) for key, day, text, have in list_onetel_events(db, user)])
+
+
+@router.post("/onetel/import", response_model=OnetelImportResult, summary="원텔 캘린더 가져오기(예시 데이터). ids 로 고른 일정만, 비우면 모두. 이미 가져온 일정은 건너뜀")
+def import_onetel(body: OnetelImportIn | None = None, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    ids = body.ids if body else None
+    if ids is not None and not set(ids) <= {key for key, *_ in list_onetel_events(db, user)}:
+        raise HTTPException(status_code=404, detail="가져올 수 없는 원텔 일정입니다.")
+    added, skipped = import_onetel_events(db, user, ids)
+    db.commit()
+    if added:
+        message = f"원텔 캘린더에서 일정 {added}건을 가져왔습니다."
+    elif ids is not None and not ids:
+        message = "가져올 일정을 골라 주세요."
+    else:
+        message = "고른 원텔 일정이 이미 모두 캘린더에 있습니다."
+    return OnetelImportResult(message=message, events=added, skipped=skipped)
 
 
 @router.post("/events", response_model=PlannerEventResult, status_code=201, summary="일정 추가(같은 id 면 있던 일정을 돌려준다)")

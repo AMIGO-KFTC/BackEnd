@@ -1026,6 +1026,26 @@ class HandoverCalendarResult(Result):
     skipped: int = Field(description="이미 캘린더에 있어 건너뛴 수")
 
 
+class OnetelEventOut(BaseModel):
+    id: str
+    date: str = Field(description="YYYY-MM-DD")
+    text: str
+    imported: bool = Field(description="이미 내 캘린더에 있는지")
+
+
+class OnetelEventsOut(Result):
+    events: list[OnetelEventOut]
+
+
+class OnetelImportIn(BaseModel):
+    ids: list[str] | None = Field(default=None, description="가져올 일정 id(GET /api/planner/onetel/events 의 id). 비우면(null) 모두")
+
+
+class OnetelImportResult(Result):
+    events: int = Field(description="원텔에서 새로 가져와 넣은 일정 수")
+    skipped: int = Field(description="이미 캘린더에 있어 건너뛴 수")
+
+
 class TransfersOut(Result):
     transfers: list[TransferSummary]
     total: int
@@ -1340,8 +1360,8 @@ class TeamScheduleResult(Result):
 
 
 class NotificationOut(BaseModel):
-    id: str = Field(description="알림 ID('transfer:<전송 ID>:v<문서 버전>')")
-    kind: Literal["received", "updated"] = Field(description="received: 새 인수인계서 도착, updated: 인계자가 보낸 뒤 문서를 고침")
+    id: str = Field(description="알림 ID('transfer:<전송 ID>:v<문서 버전>', 마감 임박은 'due:event|todo:<ID>:<날짜>')")
+    kind: Literal["received", "updated", "due"] = Field(description="received: 새 인수인계서 도착, updated: 인계자가 보낸 뒤 문서를 고침, due: 캘린더 일정·할 일 마감이 일주일 안으로 다가옴")
     session_id: str | None = Field(default=None, description="문서를 열 세션(인계자가 지웠으면 null)")
     title: str
     text: str

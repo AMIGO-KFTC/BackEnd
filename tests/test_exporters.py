@@ -3,7 +3,7 @@ import zipfile
 
 from pypdf import PdfReader
 
-from app.services.exporters import markdown_blocks, to_docx, to_pdf
+from app.services.exporters import markdown_blocks, strip_citation_marks, to_docx, to_pdf
 
 SAMPLE = """# 업무 인수인계서
 
@@ -119,3 +119,11 @@ def test_pdf_renders_html_tables_with_korean_text():
     assert pdf.startswith(b"%PDF")
     text = "".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(pdf)).pages)
     assert "재무팀 박지훈 차장" in text and "추후 고려사항" in text and "공동망 운영" in text
+
+
+def test_download_leaves_out_screen_only_guides_and_hints():
+    md = '## 1. 일정\n\n<span class="doc-guide">막대 그래프로 나타내주세요</span>\n\n본문 [1]\n\n| 항목 |\n|---|\n| <span class="doc-hint">안내</span> |\n'
+    out = strip_citation_marks(md)
+    assert "doc-guide" not in out and "막대 그래프" not in out  # 장 위의 작성 안내는 통째로 빠진다
+    assert "doc-hint" not in out and "| - |" in out  # 빈 칸의 흐린 안내는 '-' 로 바뀐다
+    assert out.startswith("## 1. 일정\n\n본문\n")

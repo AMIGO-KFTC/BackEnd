@@ -27,11 +27,12 @@ _CITATION_MARKS = re.compile(r"(?: \[\d+\])+")
 
 
 _DOC_HINT = re.compile(r'<span class="doc-hint">[^<]*</span>')  # 비어 있는 칸의 흐린 안내(화면에서만 보인다)
+_DOC_GUIDE = re.compile(r'<span class="doc-guide">[^<]*</span>\n*')  # 장 위의 회색 작성 안내(화면에서만 보인다)
 
 
 def strip_citation_marks(markdown: str) -> str:
-    """내려받는 문서에서 화면 전용 표시(근거 번호, 빈 칸의 흐린 안내)를 뺀다."""
-    return _DOC_HINT.sub("-", _CITATION_MARKS.sub("", markdown or ""))
+    """내려받는 문서에서 화면 전용 표시(근거 번호, 빈 칸의 흐린 안내, 장 위의 작성 안내)를 뺀다."""
+    return _DOC_HINT.sub("-", _DOC_GUIDE.sub("", _CITATION_MARKS.sub("", markdown or "")))
 
 
 # --------------------------------------------------------------------------- Markdown → 블록
