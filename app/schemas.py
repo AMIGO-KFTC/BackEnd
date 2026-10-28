@@ -39,6 +39,8 @@ class SignupIn(_Stripped):
     name: str = Field(min_length=1, max_length=50, description="이름")
     email: str = Field(default="", max_length=254, pattern=EMAIL_PATTERN, description="이메일(선택). 비밀번호 찾기에 쓴다")
     employee_no: str = Field(default="", pattern=EMPLOYEE_NO_PATTERN, description="사번(선택). 로그인 아이디와는 별개 값")
+    department: str = Field(default="", max_length=100, description="본부·부(선택). 직제규정 시행세칙(GET /api/auth/org-teams)의 본부·부 이름. team 과 함께 보낸다")
+    team: str = Field(default="", max_length=100, description="팀(선택). 보내면 가입과 동시에 이 팀으로 배정돼, 내 정보를 따로 고치지 않아도 인수인계에서 팀의 단위업무가 나온다")
 
     @field_validator("password")
     @classmethod
@@ -46,6 +48,15 @@ class SignupIn(_Stripped):
         if not PASSWORD_RULE.fullmatch(value):
             raise ValueError("비밀번호는 9~20자의 영문, 숫자, 특수문자를 모두 포함해야 합니다.")
         return value
+
+
+class OrgTeamOptionOut(BaseModel):
+    name: str = Field(description="본부·부 이름")
+    teams: list[str] = Field(description="그 아래 팀 이름")
+
+
+class OrgTeamsOut(Result):
+    divisions: list[OrgTeamOptionOut]
 
 
 class LoginIn(_Stripped):

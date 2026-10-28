@@ -15,11 +15,12 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..models import AuthSession, PasswordReset, User, utcnow
-from ..schemas import LoginIn, LoginOut, MeOut, PasswordForgotIn, PasswordForgotOut, PasswordResetIn, Result, SignupIn
+from ..models import AuthSession, PasswordReset, User, UserProfile, utcnow
+from ..schemas import LoginIn, LoginOut, MeOut, OrgTeamsOut, PasswordForgotIn, PasswordForgotOut, PasswordResetIn, Result, SignupIn
 from ..security import DUMMY_HASH, hash_password, new_token, token_hash, verify_password
 from ..services.accounts import issue_reset_token, set_password
 from ..services.container import Services
+from ..services.org_duties import has_team, team_options
 from .deps import COOKIE_NAME, as_utc, current_user, get_db, get_services, request_token, user_out
 from .me import email_taken, employee_no_taken
 
@@ -41,10 +42,18 @@ def find_account(db: Session, value: str) -> User | None:
     return matches[0] if len(matches) == 1 else None
 
 
-@router.post("/signup", response_model=MeOut, status_code=status.HTTP_201_CREATED, summary="회원가입(사번·비밀번호·이름)")
+@router.get("/org-teams", response_model=OrgTeamsOut, summary="회원가입에서 고를 본부·부와 팀 목록(로그인 없이)")
+def org_teams():
+    return OrgTeamsOut(divisions=team_options())
+
+
+@router.post("/signup", response_model=MeOut, status_code=status.HTTP_201_CREATED, summary="회원가입(사번·비밀번호·이름, 선택: 본부·팀 배정)")
 def signup(body: SignupIn, db: Session = Depends(get_db), services: Services = Depends(get_services)):
     if not services.settings.allow_signup:
         raise HTTPException(status_code=403, detail="회원가입이 비활성화되어 있습니다. 관리자에게 계정을 요청해 주세요.")
+    assign_team = bool(body.department or body.team)
+    if assign_team and not has_team(body.department, body.team):
+        raise HTTPException(status_code=400, detail="선택한 본부·팀을 찾을 수 없습니다. 목록에서 다시 골라 주세요.")
     login_id = body.login_id.lower()
     if db.scalar(select(User.id).where(User.login_id == login_id)) is not None:
         raise HTTPException(status_code=409, detail="이미 가입된 사번입니다.")
@@ -55,6 +64,8 @@ def signup(body: SignupIn, db: Session = Depends(get_db), services: Services = D
     if employee_no_taken(db, employee_no):
         raise HTTPException(status_code=409, detail="이미 다른 계정이 쓰고 있는 사번입니다.")
     user = User(login_id=login_id, password_hash=hash_password(body.password), name=body.name, email=email, employee_no=employee_no)
+    if assign_team:  # 가입할 때 팀을 정해 두면 내 정보를 고치지 않아도 인수인계 시작 화면에 팀의 단위업무가 나온다(직위는 관리자가 정한다)
+        user.profile = UserProfile(department=body.department.strip(), team=body.team.strip(), position="")
     db.add(user)
     try:
         db.commit()

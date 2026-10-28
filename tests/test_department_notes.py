@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
-from app.services.department_notes import DEFAULT_FILE, department_notes_for
+from app.services.department_notes import DEFAULT_FILE, department_notes_for, office_dept_notes
 
 
 def test_default_file_covers_every_team_in_mock_data_in_the_table_form():
@@ -53,19 +53,25 @@ def mock_client(tmp_path):
         yield c
 
 
-def test_mock_mode_asks_about_handover_list_and_note(mock_client):
+def test_team_member_sessions_are_not_asked_about_department_notes(mock_client):
+    """사무관리규정 시행세칙의 부서별 추가 자료는 팀장(원내 양식) 인수인계서에만 필수라서, 팀원 세션에서는 묻지 않는다."""
     assert mock_client.post("/api/auth/login", json={"login_id": "demo", "password": "demo1234"}).status_code == 200
     task = next(t for t in mock_client.get("/api/unit-tasks").json()["tasks"] if t["name"] == "웹 접근성 관리")
     gaps = mock_client.get(f"/api/sessions/{task['session_id']}").json()["gaps"]
-    asked = [g["question"] for g in gaps if g["slot"] == "dept_notes"]
-    assert len(asked) == 3
-    assert "홈페이지 유지보수 계약 명세표" in asked[0] and "웹 접근성 인증 현황표" in asked[1]  # 목록 앞쪽부터
-    assert "인증 유효기간, 갱신 예정일" in asked[2]  # 비고의 기재 사항은 꼭 묻는다
+    assert [g["question"] for g in gaps if g["slot"] == "dept_notes"] == []
 
 
-def test_start_analysis_passes_department_notes_to_agent(mock_client):
-    from app.services import runner as runner_module
+def test_office_dept_notes_only_for_the_office_form():
+    from types import SimpleNamespace
 
+    org = "디지털전략부 웹서비스팀"
+    assert office_dept_notes(SimpleNamespace(form="standard", organization=org)) is None
+    assert office_dept_notes(SimpleNamespace(form="", organization=org)) is None
+    info = office_dept_notes(SimpleNamespace(form="office", organization=org))
+    assert info and info["department"] == org and info["items"]
+
+
+def test_start_analysis_does_not_pass_department_notes_for_team_members(mock_client):
     seen = {}
     services = mock_client.app.state.services
     real = services.agent.start
@@ -80,5 +86,4 @@ def test_start_analysis_passes_department_notes_to_agent(mock_client):
             time.sleep(0.1)
     finally:
         services.agent.start = real
-    notes = seen["profile"]["dept_notes"]
-    assert runner_module and notes["department"] == "디지털전략부 웹서비스팀" and notes["items"] and "경영지원본부 재무팀" in notes["others"]
+    assert "dept_notes" not in seen["profile"]  # 팀원(기본 양식)에게는 부서별 추가 자료를 넘기지 않는다

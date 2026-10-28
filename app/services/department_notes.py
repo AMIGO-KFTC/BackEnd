@@ -49,6 +49,14 @@ def _load(path: str) -> list[tuple[str, dict[str, Any]]]:
     return units
 
 
+def office_dept_notes(row: Any, path: str | None = None) -> dict[str, Any] | None:
+    """세션의 부·팀 인수인계 목록. 사무관리규정 시행세칙의 부서별 추가 자료는 팀장(원내 양식) 인수인계서에만 필수라서,
+    팀원(기본 양식) 세션에는 넘기지 않는다(질의응답에서 묻지 않는다). 팀별 필수 자료는 관리자 모드의 팀 지침(team_guidelines)이 따로 맡는다."""
+    if (getattr(row, "form", "") or "standard") != "office":
+        return None
+    return department_notes_for(row.organization, path)
+
+
 def department_notes_for(organization: str, path: str | None = None) -> dict[str, Any] | None:
     """소속(부 + 팀)의 인수인계 목록과 다른 부·팀의 목록. 소속 비교는 공백·가운뎃점을 같게 본다. 목록·비고가 모두 비어 있거나 없으면 None."""
     key = organization_key(organization)
