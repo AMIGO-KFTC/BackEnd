@@ -527,13 +527,15 @@ class MyDocumentsOut(Result):
 class GanttEdit(BaseModel):
     name: str = Field(min_length=1, max_length=300, description="월별 일정표의 단위 업무명(첫 열)")
     nth: int = Field(default=0, ge=0, le=100, description="이름이 같은 행이 여럿일 때 몇 번째 행인지(0부터)")
-    months: list[int] = Field(max_length=12, description="막대가 칠해진 달(1~12)")
+    months: list[int] = Field(max_length=36, description="막대가 칠해진 달. 1~12월 표는 1~12, 해를 넘기는 표는 YYYYMM(예: 202612)")
 
     @field_validator("months")
     @classmethod
     def _valid_months(cls, value: list[int]) -> list[int]:
-        if any(m < 1 or m > 12 for m in value):
-            raise ValueError("월은 1~12 사이여야 합니다.")
+        plain = all(1 <= m <= 12 for m in value)
+        dated = all(190001 <= m <= 299912 and 1 <= m % 100 <= 12 for m in value)
+        if not (plain or dated):
+            raise ValueError("월은 1~12(또는 해를 넘기는 표는 YYYYMM) 값이어야 합니다.")
         return sorted(set(value))
 
 
