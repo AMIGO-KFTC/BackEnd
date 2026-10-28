@@ -427,6 +427,7 @@ class PlannerTodo(Base):
     done: Mapped[bool] = mapped_column(Boolean, default=False)
     date: Mapped[str | None] = mapped_column(String(10), default=None)  # YYYY-MM-DD, None 이면 날짜 없음
     memo: Mapped[str] = mapped_column(String(500), default="")  # 짧은 메모
+    history_json: Mapped[str] = mapped_column(Text, default="[]")  # 업무 진행 이력 [{id, text, created_at}] (오래된 것부터)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 

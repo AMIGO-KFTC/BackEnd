@@ -1246,12 +1246,23 @@ class PlannerTodoUpdate(_Stripped):
         return _planner_date(value)
 
 
+class PlannerHistoryOut(BaseModel):
+    id: str
+    text: str
+    created_at: str = Field(description="적은 시각(UTC, ISO 8601)")
+
+
+class PlannerHistoryIn(_Stripped):
+    text: str = Field(min_length=1, max_length=500, description="오늘 진행한 내용")
+
+
 class PlannerTodoOut(BaseModel):
     id: str
     text: str
     done: bool
     date: str | None
     memo: str = ""
+    history: list[PlannerHistoryOut] = Field(default_factory=list, description="업무 진행 이력(오래된 것부터)")
 
 
 class PlannerWeekTaskIn(_Stripped):
@@ -1299,6 +1310,11 @@ class PlannerEventResult(Result):
 
 
 class PlannerTodoResult(Result):
+    todo: PlannerTodoOut
+
+
+class PlannerHistoryResult(Result):
+    entry: PlannerHistoryOut
     todo: PlannerTodoOut
 
 
