@@ -249,6 +249,14 @@ def to_docx(markdown: str, *, title: str = "업무 인수인계서") -> bytes:
                 del rfonts.attrib[qn(attr)]
 
     set_font(doc.styles["Normal"], 10)
+    # 한글을 글자 단위가 아니라 단어(띄어쓰기) 단위로 줄바꿈한다(Word '한글 단어 잘림 허용' 끔: w:wordWrap=0). 모든 문단이 Normal 을 따른다
+    word_wrap = OxmlElement("w:wordWrap")
+    word_wrap.set(qn("w:val"), "0")
+    doc.styles["Normal"].element.get_or_add_pPr().insert_element_before(
+        word_wrap, "w:overflowPunct", "w:topLinePunct", "w:autoSpaceDE", "w:autoSpaceDN", "w:bidi", "w:adjustRightInd", "w:snapToGrid",
+        "w:spacing", "w:ind", "w:contextualSpacing", "w:mirrorIndents", "w:suppressOverlap", "w:jc", "w:textDirection", "w:textAlignment",
+        "w:textboxTightWrap", "w:outlineLvl", "w:divId", "w:cnfStyle", "w:rPr", "w:sectPr", "w:pPrChange",
+    )
     for name, size in (("Title", 22), ("Heading 1", 18), ("Heading 2", 14), ("Heading 3", 12)):
         set_font(doc.styles[name], size)
         doc.styles[name].font.color.rgb = RGBColor(0x1F, 0x2A, 0x44)
@@ -434,7 +442,8 @@ def to_pdf(markdown: str, *, title: str = "업무 인수인계서") -> bytes:
 
     regular, bold = _pdf_fonts()
     navy = colors.HexColor("#1F2A44")
-    body = ParagraphStyle("body", fontName=regular, fontSize=9.5, leading=14.5, wordWrap="CJK", alignment=TA_LEFT, spaceAfter=4)
+    # 한국어도 단어(띄어쓰기) 단위로 줄을 바꾼다(wordWrap="CJK" 는 음절 중간에서 끊는다). 칸보다 긴 한 단어는 splitLongWords 로 나눈다.
+    body = ParagraphStyle("body", fontName=regular, fontSize=9.5, leading=14.5, alignment=TA_LEFT, spaceAfter=4, splitLongWords=1)
     cell = ParagraphStyle("cell", parent=body, fontSize=8.5, leading=12, spaceAfter=0)
     head_cell = ParagraphStyle("head_cell", parent=cell, fontName=bold)
     headings = {
