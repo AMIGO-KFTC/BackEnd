@@ -73,8 +73,8 @@ def _runs(children: list[dict], bold: bool = False, italic: bool = False) -> lis
             out.extend(_runs(node.get("children", []), bold, True))
         elif kind == "codespan":
             out.append(Run(node.get("raw", ""), bold, italic, code=True))
-        elif kind in ("softbreak", "linebreak"):
-            out.append(Run("\n", bold, italic))
+        elif kind in ("softbreak", "linebreak") or (kind == "inline_html" and re.fullmatch(r"<br\s*/?>", str(node.get("raw", "")).strip(), re.I)):
+            out.append(Run("\n", bold, italic))  # 표 칸 안의 <br> 도 줄바꿈
         elif kind == "link":
             out.extend(_runs(node.get("children", []), bold, italic))
         elif "children" in node:
@@ -249,6 +249,14 @@ def to_docx(markdown: str, *, title: str = "업무 인수인계서") -> bytes:
                 del rfonts.attrib[qn(attr)]
 
     set_font(doc.styles["Normal"], 10)
+    # 한글을 글자 단위가 아니라 단어(띄어쓰기) 단위로 줄바꿈한다(Word '한글 단어 잘림 허용' 끔: w:wordWrap=0). 모든 문단이 Normal 을 따른다
+    word_wrap = OxmlElement("w:wordWrap")
+    word_wrap.set(qn("w:val"), "0")
+    doc.styles["Normal"].element.get_or_add_pPr().insert_element_before(
+        word_wrap, "w:overflowPunct", "w:topLinePunct", "w:autoSpaceDE", "w:autoSpaceDN", "w:bidi", "w:adjustRightInd", "w:snapToGrid",
+        "w:spacing", "w:ind", "w:contextualSpacing", "w:mirrorIndents", "w:suppressOverlap", "w:jc", "w:textDirection", "w:textAlignment",
+        "w:textboxTightWrap", "w:outlineLvl", "w:divId", "w:cnfStyle", "w:rPr", "w:sectPr", "w:pPrChange",
+    )
     for name, size in (("Title", 22), ("Heading 1", 18), ("Heading 2", 14), ("Heading 3", 12)):
         set_font(doc.styles[name], size)
         doc.styles[name].font.color.rgb = RGBColor(0x1F, 0x2A, 0x44)
@@ -434,20 +442,24 @@ def to_pdf(markdown: str, *, title: str = "업무 인수인계서") -> bytes:
 
     regular, bold = _pdf_fonts()
     navy = colors.HexColor("#1F2A44")
-    body = ParagraphStyle("body", fontName=regular, fontSize=9.5, leading=14.5, wordWrap="CJK", alignment=TA_LEFT, spaceAfter=4)
+    # 한국어도 단어(띄어쓰기) 단위로 줄을 바꾼다(wordWrap="CJK" 는 음절 중간에서 끊는다). 칸보다 긴 한 단어는 splitLongWords 로 나눈다.
+    body = ParagraphStyle("body", fontName=regular, fontSize=9.5, leading=14.5, alignment=TA_LEFT, spaceAfter=4, splitLongWords=1)
     cell = ParagraphStyle("cell", parent=body, fontSize=8.5, leading=12, spaceAfter=0)
     head_cell = ParagraphStyle("head_cell", parent=cell, fontName=bold)
     headings = {
         1: ParagraphStyle("h1", parent=body, fontName=bold, fontSize=18, leading=24, textColor=navy, spaceAfter=10),
         2: ParagraphStyle("h2", parent=body, fontName=bold, fontSize=13, leading=18, textColor=navy, spaceBefore=10, spaceAfter=6),
         3: ParagraphStyle("h3", parent=body, fontName=bold, fontSize=11, leading=16, textColor=navy, spaceBefore=6, spaceAfter=4),
+        # 인사발령 '주요 내용'의 묶음 제목(#### 1) 정기업무)과 세부업무 제목(##### 가. 세부업무)
+        4: ParagraphStyle("h4", parent=body, fontName=bold, fontSize=10.5, leading=15, textColor=colors.HexColor("#5B45B0"), spaceBefore=5, spaceAfter=3),
+        5: ParagraphStyle("h5", parent=body, fontName=bold, fontSize=10, leading=14.5, textColor=navy, spaceBefore=4, spaceAfter=3),
     }
 
     page_width = A4[0] - 36 * mm
     story = []
     for block in markdown_blocks(markdown):
         if block.kind == "heading":
-            story.append(Paragraph(_markup(block.runs), headings[min(block.level, 3)]))
+            story.append(Paragraph(_markup(block.runs), headings[min(block.level, 5)]))
             if block.level == 2:
                 story.append(HRFlowable(width="100%", thickness=0.6, color=colors.HexColor("#C9D3E3"), spaceAfter=4))
         elif block.kind == "paragraph":

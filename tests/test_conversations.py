@@ -191,7 +191,9 @@ def test_restart_recovers_interrupted_work(settings, sample_dir):
         p = wait_progress(
             client,
             sid,
-            lambda p: p["status"] == "waiting" and p["next_action"] == "answer_question" and "새 자료" in p["last_message"]["content"],
+            # '새 자료 반영' 안내는 다음 질문에 붙이지 않고 질문 앞에 따로 보낸다
+            lambda p: p["status"] == "waiting" and p["next_action"] == "answer_question"
+            and any("새 자료" in m["content"] and m["kind"] == "info" for m in client.get(f"/api/sessions/{sid}/messages").json()),
         )
         assert p["current_question"] is not None and p["questions"]["asked"] >= 1
 

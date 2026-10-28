@@ -108,6 +108,66 @@ def merge_gantt_rows(edited: str, rendered: str) -> str:
     return _GANTT_ROW.sub(swap, edited)
 
 
+DEPT_FILES_HEADING = "## 16. 부서·팀(반, 사무소)별 추가자료"
+
+
+def _section_span(lines: list[str], heading: str) -> tuple[int, int] | None:
+    """heading 줄부터 다음 '## ' 제목 앞(또는 끝)까지의 줄 범위. 제목 글을 고쳤어도 같은 장 번호('## 16.')면 같은 장으로 본다."""
+    number = heading.split(" ", 2)[1]  # "16."
+    start = next((i for i, line in enumerate(lines) if line.rstrip() == heading), None)
+    if start is None:
+        start = next((i for i, line in enumerate(lines) if line.startswith(f"## {number}")), None)
+    if start is None:
+        return None
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    return start, end
+
+
+def replace_section(edited: str, rendered: str, heading: str = DEPT_FILES_HEADING) -> str:
+    """직접 고친 문서의 한 장(heading 부터 다음 '## ' 제목 앞까지)만 AI 가 다시 그린 문서의 같은 장으로 바꾼다. 다른 장의 직접 고친 글은 그대로 둔다.
+
+    다시 그린 문서에 그 장이 없으면 고치지 않고, 직접 고친 문서에서 그 장을 지웠으면 문서 끝에 붙인다.
+    """
+    new_lines = rendered.splitlines()
+    new_span = _section_span(new_lines, heading)
+    if new_span is None:
+        return edited
+    section = new_lines[new_span[0] : new_span[1]]
+    lines = edited.splitlines()
+    span = _section_span(lines, heading)
+    if span is None:
+        return "\n".join([*lines, "", *section]).strip("\n") + "\n"
+    if span[1] < len(lines) and section and section[-1].strip():  # 다음 장과 붙지 않게 빈 줄을 둔다
+        section = [*section, ""]
+    merged = "\n".join([*lines[: span[0]], *section, *lines[span[1] :]])
+    return merged + "\n" if edited.endswith("\n") and not merged.endswith("\n") else merged
+
+
+DEPT_TABLE_HEAD = "| 추가자료 | 등록 여부 |"  # 부서별 추가자료 업로드 표(amigo_agent.render._render_dept_uploads)
+
+
+def replace_dept_table(edited: str, rendered: str) -> str:
+    """직접 고친 문서의 부서별 추가자료 업로드 표만 AI 가 다시 그린 표로 바꾼다(팀장 16장, 팀원 기타 자료 > 부서별 추가 자료 모두).
+    직접 고친 문서에 표가 없으면 팀장 16장 단위로 바꾼다(replace_section)."""
+    def span(lines: list[str]) -> tuple[int, int] | None:
+        start = next((i for i, line in enumerate(lines) if line.strip() == DEPT_TABLE_HEAD), None)
+        if start is None:
+            return None
+        end = start
+        while end < len(lines) and lines[end].lstrip().startswith("|"):
+            end += 1
+        return start, end
+
+    new_lines = rendered.splitlines()
+    new_span = span(new_lines)
+    lines = edited.splitlines()
+    old_span = span(lines)
+    if new_span is None or old_span is None:
+        return replace_section(edited, rendered)
+    merged = "\n".join([*lines[: old_span[0]], *new_lines[new_span[0] : new_span[1]], *lines[old_span[1] :]])
+    return merged + "\n" if edited.endswith("\n") and not merged.endswith("\n") else merged
+
+
 def backfill_versions(session_factory: sessionmaker) -> int:
     """버전 기록이 생기기 전에 만든 문서(sessions.document_md)를 첫 버전으로 옮긴다. 옮긴 세션 수를 돌려준다."""
     with session_factory() as db:

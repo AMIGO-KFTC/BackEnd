@@ -25,6 +25,7 @@ from .config import Settings, get_settings
 from .routers import (
     admin,
     auth,
+    business_plans,
     chat,
     conversations,
     documents,
@@ -102,6 +103,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         integrations.router,
         transfers.router,
         org_duties.router,
+        business_plans.router,
         planner.router,
         personnel.router,
         team_schedules.router,

@@ -15,8 +15,12 @@ def test_default_file_covers_every_team_in_mock_data_in_the_table_form():
     data = json.loads(DEFAULT_FILE.read_text(encoding="utf-8"))
     assert data["title"].startswith("부서・팀(반, 사무소)별 인수인계 목록")
     teams = {f"{d['부팀명']} {t['부팀명']}" for d in data["부서"] for t in d["팀"]}
-    assert teams == {"디지털전략부 웹서비스팀", "디지털전략부 IT운영팀", "디지털본부 IT아미고팀", "디지털본부 AI개발팀",
-                     *(f"경영지원본부 {t}" for t in ("재무팀", "정보보호팀", "IT지원팀", "법무팀", "총무팀", "홍보팀", "인사팀"))}
+    assert {"디지털전략부 웹서비스팀", "디지털전략부 IT운영팀", "디지털본부 IT아미고팀", "디지털본부 AI개발팀",
+            *(f"경영지원본부 {t}" for t in ("재무팀", "정보보호팀", "IT지원팀", "법무팀", "총무팀", "홍보팀", "인사팀"))} <= teams
+    # 노션 '추가 요구사항 정의' 관리자용 5): 부서별 추가자료가 있는 17개 팀
+    notion = {"전략기획팀", "커뮤니케이션실", "업무총괄팀", "노사협력팀", "재무회계팀", "재산관리팀", "안전관리실", "지로업무팀", "CMS업무팀",
+              "공공납부팀", "어음업무팀", "사무소", "법인사업팀", "뱅크포스팀", "스마트결제사업팀", "감사실", "운영주관팀"}
+    assert notion <= {t["부팀명"] for d in data["부서"] for t in d["팀"]} and len(teams) == 11 + 17
     for d in data["부서"]:  # 형태: 부팀명 / 목록 / 비고 (부 아래에 팀)
         assert set(d) == {"부팀명", "목록", "비고", "팀"}
         for t in d["팀"]:

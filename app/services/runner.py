@@ -25,7 +25,7 @@ from sqlalchemy import select
 
 from ..models import FileBlob, HandoverSession, Message, Source, UnitTask, utcnow
 from .documents import record_ai_document
-from .department_notes import office_dept_notes
+from .department_notes import dept_file_items, office_dept_notes
 from .guidelines import guidelines_for
 
 if TYPE_CHECKING:
@@ -111,6 +111,7 @@ class JobRunner:
             dept_notes = office_dept_notes(row)  # 부·팀 인수인계 목록(없으면 None): 팀장(원내 양식) 인수인계서의 분석·질문·대화에만 반영한다
             if dept_notes:
                 profile["dept_notes"] = dept_notes
+            profile["dept_items"] = dept_file_items(row)  # 부서별 추가자료: 인계자가 항목별로 파일만 올린다(모든 양식)
         kb, agent = self.services.kb(session_id), self.services.agent
         self.run_agent(session_id, "analyze", lambda h: agent.start(session_id, profile, kb, on_event=h), progress="자료를 분석하고 있어요.")
 
@@ -144,6 +145,8 @@ class JobRunner:
                 "team_guidelines": guidelines_for(db, row.organization),
                 "dept_notes": office_dept_notes(row),
                 "form": row.form or "standard",
+                "dept_items": dept_file_items(row),  # 부서별 추가자료 항목(팀 인수인계 목록, 모든 양식)
+                "dept_uploads": row.dept_uploads,  # 부서별 추가자료로 올린 파일 이름
             }
         try:
             self.services.agent.update_profile(session_id, patch)
@@ -179,10 +182,13 @@ class JobRunner:
             db.commit()
 
     # ------------------------------------------------------------------ 자료 적재
-    def run_ingest(self, session_id: str, source_ids: list[str], *, auto_analyze: bool = False, notify: bool = True) -> None:
-        """자료를 지식베이스에 적재한다. notify=False 면 적재가 끝나도 에이전트에 '새 자료'를 알리지 않는다(재적재)."""
+    def run_ingest(self, session_id: str, source_ids: list[str], *, auto_analyze: bool = False, notify: bool = True, reanalyze: bool = True) -> None:
+        """자료를 지식베이스에 적재한다. notify=False 면 적재가 끝나도 에이전트에 '새 자료'를 알리지 않는다(재적재).
+
+        reanalyze=False 는 처음 올린 자료지만 AI 재분석은 하지 않을 때 쓴다(부서·팀별 추가자료: 근거 자료로만 둔다).
+        """
         if source_ids:
-            self.pool.submit(self._ingest_job, session_id, source_ids, auto_analyze, notify)
+            self.pool.submit(self._ingest_job, session_id, source_ids, auto_analyze, notify, reanalyze)
 
     def reindex(self, session_id: str, source_ids: list[str] | None = None, *, rebuild: bool | None = None) -> int:
         """이미 처리된 자료를 원본(디스크 사본 또는 DB 원본)으로 다시 적재한다. 다시 적재하는 자료 수를 돌려준다.
@@ -236,15 +242,15 @@ class JobRunner:
         if total:
             logger.warning("지식베이스에 없거나 임베딩이 바뀐 자료 %d건을 다시 적재합니다.", total)
 
-    def _ingest_job(self, session_id: str, source_ids: list[str], auto_analyze: bool = False, notify: bool = True) -> None:
+    def _ingest_job(self, session_id: str, source_ids: list[str], auto_analyze: bool = False, notify: bool = True, reanalyze: bool = True) -> None:
         try:
-            self._ingest(session_id, source_ids, auto_analyze, notify)
+            self._ingest(session_id, source_ids, auto_analyze, notify, reanalyze)
         finally:
             if not notify:  # 재적재가 끝나면 다시 AI 작업을 받을 수 있게
                 with self._lock:
                     self._reindexing.discard(session_id)
 
-    def _ingest(self, session_id: str, source_ids: list[str], auto_analyze: bool, notify: bool) -> None:
+    def _ingest(self, session_id: str, source_ids: list[str], auto_analyze: bool, notify: bool, reanalyze: bool = True) -> None:
         kb = self.services.kb(session_id)
         ready_names: list[str] = []
         for source_id in source_ids:
@@ -283,7 +289,7 @@ class JobRunner:
                 db.commit()
                 if status == "ready":
                     ready_names.append(source.name)
-        if ready_names and notify:
+        if ready_names and notify and reanalyze:
             self._queue_reanalysis(session_id, ready_names)
         if auto_analyze:
             self._auto_analyze(session_id)

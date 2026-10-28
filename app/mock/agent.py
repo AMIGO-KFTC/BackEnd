@@ -206,6 +206,16 @@ class MockAgent:
             st["document"] = render_document(profile=st["profile"], slots=st["slots"], gaps=st["gaps"], sources=st["sources"], version=st["document_version"])
             return {"markdown": st["document"], "version": st["document_version"]}
 
+    def rerender(self, thread_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        """인계자 정보를 patch 로 갱신하고 같은 버전으로 문서를 다시 그린다(부서·팀별 추가자료 등록)."""
+        self.update_profile(thread_id, patch)
+        with self._lock(thread_id):
+            st = self._ready(thread_id)
+            if not st["document"]:
+                raise AgentStateError("아직 생성된 인수인계서가 없습니다.")
+            st["document"] = render_document(profile=st["profile"], slots=st["slots"], gaps=st["gaps"], sources=st["sources"], version=st["document_version"])
+            return {"markdown": st["document"], "version": st["document_version"]}
+
     def update_profile(self, thread_id: str, patch: dict[str, Any]) -> bool:
         with self._lock(thread_id):
             st = self._states.get(thread_id)
@@ -355,13 +365,15 @@ class MockAgent:
 
     def _revise(self, st: dict, emit: _Emitter, text: str) -> None:
         emit.say("info", "말씀하신 내용을 반영해서 문서를 다시 작성할게요.")
-        if "dept_notes" in {s.key for s in slots_for(st["profile"])}:
-            slot = st["slots"].setdefault("dept_notes", {"key": "dept_notes", "items": [], "coverage": "missing", "summary": "", "note": ""})
-            slot["items"].append({"id": f"dept_notes-r{st['document_version']}", "title": "검토 의견", "origin": "user", "confirmed": True,
-                                  "fields": {"topic": "검토 의견", "detail": text},
-                                  "citations": [{"source_id": "chat", "label": f"인계자 답변 ({date.today().isoformat()} 대화)", "quote": text[:80]}]})
-            self._recount(st, "dept_notes")
-            emit.slot("dept_notes", slot)
+        # 검토 의견은 첫 세부업무의 '기타(참고자료 등)' 칸에 덧붙인다(부서별 추가 자료는 파일만 올리는 장이라 쓰지 않는다)
+        key = next((k for k in ("regular", "leave_tasks") if k in {s.key for s in slots_for(st["profile"])} and (st["slots"].get(k) or {}).get("items")), None)
+        if key:
+            item = st["slots"][key]["items"][0]
+            fields = item.setdefault("fields", {})
+            fields["references"] = " / ".join(x for x in (str(fields.get("references") or "").strip(), text) if x)
+            item.setdefault("citations", []).append({"source_id": "chat", "label": f"인계자 답변 ({date.today().isoformat()} 대화)", "quote": text[:80]})
+            self._recount(st, key)
+            emit.slot(key, st["slots"][key])
         self._compose(st, emit)
 
     def _compose(self, st: dict, emit: _Emitter) -> None:

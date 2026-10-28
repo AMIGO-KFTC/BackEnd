@@ -36,8 +36,8 @@ def test_full_flow_upload_analyze_chat_generate_download(client, sample_dir):
     state = wait_for(client, sid, lambda s: s["status"] == "waiting")
     session = state["session"]
     assert session["stage"] == "qna" and session["engine"] == "offline"
-    assert set(session["slots"]) == {"overview", "regular", "partners", "irregular", "milestones", "stakeholders", "systems", "dept_notes"}
-    assert session["progress"]["current"] == session["progress"]["total"] == 8
+    assert set(session["slots"]) == {"overview", "regular", "partners", "irregular", "milestones", "stakeholders", "systems"}  # 부서별 추가 자료는 분석하지 않고 파일만 올린다
+    assert session["progress"]["current"] == session["progress"]["total"] == 7  # 부서별 추가 자료는 분석하지 않는다
     kinds = [m["kind"] for m in state["messages"]]
     assert kinds[0] == "info" and "summary" in kinds and kinds[-1] == "question"
     question = state["messages"][-1]
@@ -139,7 +139,7 @@ def test_files_added_during_qna_trigger_reanalysis(client, sample_dir):
     upload(client, sid, [sample_dir / "홈페이지_운영매뉴얼.hwpx"])
     state = wait_for(client, sid, lambda s: idle(s) and s["status"] == "waiting" and len(_messages(client, sid, cursor)) > 0)
     new = _messages(client, sid, cursor)
-    assert "새 자료(홈페이지_운영매뉴얼.hwpx)를 반영했어요" in new[-1]["content"]
+    assert "새 자료(홈페이지_운영매뉴얼.hwpx)를 반영했어요" in new[-2]["content"] and new[-2]["kind"] == "info"  # 안내는 다음 질문 앞에 따로
     after = client.get(f"/api/sessions/{sid}").json()["slots"]["systems"]["items"]
     assert len(after) > before
 
