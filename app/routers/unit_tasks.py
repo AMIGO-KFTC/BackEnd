@@ -110,6 +110,8 @@ def create_tasks(body: UnitTasksIn, user: User = Depends(current_user), db: Sess
             successor=item.successor,
             successor_login_id=item.successor_login_id,
             handover_date=item.handover_date,
+            plans=item.plans,
+            issues=item.issues,
             welcome=_welcome(item.name),
         )
         task = UnitTask(id=uuid.uuid4().hex, user_id=user.id, session=row, name=item.name, description=item.description, sort_order=order)

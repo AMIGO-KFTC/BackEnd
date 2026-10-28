@@ -187,6 +187,23 @@ class AdminResetOut(Result):
 
 HandoverMode = Literal["reassignment", "leave"]
 DATE_PATTERN = r"^(\d{4}-\d{2}-\d{2})?$"
+MAX_PLAN_ITEMS = 30
+PLANS_DESCRIPTION = "주요 사업계획(팀장 원내 양식: 주요 업무보고 목록에서 고르거나 직접 추가). 30개·각 200자까지, 빈 값·중복은 버린다"
+ISSUES_DESCRIPTION = "현안(팀장 원내 양식: 현안이 있는 사업계획을 고르거나 직접 추가). 30개·각 200자까지, 빈 값·중복은 버린다"
+
+
+def clean_titles(values: list[str]) -> list[str]:
+    """사업계획·현안 목록: 앞뒤 공백을 지우고 빈 값·중복을 버린다(순서 유지). 30개·각 200자를 넘으면 거절한다."""
+    items: list[str] = []
+    for value in values:
+        value = value.strip()
+        if value and value not in items:
+            items.append(value)
+    if len(items) > MAX_PLAN_ITEMS:
+        raise ValueError(f"{MAX_PLAN_ITEMS}개까지 고를 수 있습니다.")
+    if any(len(v) > 200 for v in items):
+        raise ValueError("각 항목은 200자 이하로 입력해 주세요.")
+    return items
 
 
 class UnitTaskIn(_Stripped):
@@ -196,6 +213,13 @@ class UnitTaskIn(_Stripped):
     successor: str = Field(default="", max_length=100, description="인수자(선택)")
     successor_login_id: str = Field(default="", max_length=50, description="인수자의 로그인 아이디(선택). 적으면 그 계정의 '받은 인수인계'에 나타난다")
     handover_date: str = Field(default="", pattern=DATE_PATTERN, description="인계 예정일 YYYY-MM-DD(선택)")
+    plans: list[str] = Field(default_factory=list, description=PLANS_DESCRIPTION)
+    issues: list[str] = Field(default_factory=list, description=ISSUES_DESCRIPTION)
+
+    @field_validator("plans", "issues")
+    @classmethod
+    def _clean_titles(cls, values: list[str]) -> list[str]:
+        return clean_titles(values)
 
 
 class UnitTasksIn(BaseModel):
@@ -277,6 +301,13 @@ class SessionCreate(BaseModel):
         max_length=30,
         description="단위업무와 세부업무(정기·비정기). 인사발령은 고른 단위업무마다 1건, 장기휴가는 이름을 비운 1건. 이름도 세부업무도 없는 건은 버린다",
     )
+    plans: list[str] = Field(default_factory=list, description=PLANS_DESCRIPTION)
+    issues: list[str] = Field(default_factory=list, description=ISSUES_DESCRIPTION)
+
+    @field_validator("plans", "issues")
+    @classmethod
+    def _clean_titles(cls, values: list[str]) -> list[str]:
+        return clean_titles(values)
 
     @field_validator("owner_name", "organization", "position", "duties", "successor", "successor_login_id", "handover_date", "leave_start", "leave_end", "title", "task_name")
     @classmethod
@@ -380,6 +411,11 @@ class SessionDetail(SessionSummary):
     units: list[UnitOut] = Field(default_factory=list, description="인계자 정보에서 고른 단위업무와 세부업무(정기·비정기). 예전 세션은 빈 목록")
     owner_login_id: str = Field(default="", description="인계자(세션을 만든 로그인 계정)의 아이디. 로그인 없이 만든 세션이면 빈 값")
     form: str = Field(default="standard", description="인수인계서 양식: standard(기본 양식) | office(원내 양식, 팀장이 만든 세션)")
+    plans: list[str] = Field(default_factory=list, description="인계할 주요 사업계획(팀장 원내 양식). 예전 세션·기본 양식은 빈 목록")
+    issues: list[str] = Field(default_factory=list, description="현안(팀장 원내 양식). 예전 세션·기본 양식은 빈 목록")
+    dept_uploads: dict[str, list[str]] = Field(
+        default_factory=dict, description="부서·팀별 추가자료(16장) 항목별로 올린 파일 이름: {항목명: [파일 이름]}"
+    )
     viewer: Literal["owner", "recipient", "team", ""] = Field(
         default="", description="지금 보는 계정과 이 세션의 관계: owner(인계자) | recipient(전송받은 사람) | team(같은 팀 팀장) | 빈 값(로그인 없이 만든 세션)"
     )
@@ -1135,6 +1171,12 @@ class OrgDutiesResult(Result):
     title: str = Field(description="자료 이름(예: 직제규정 시행세칙(가상 예시))")
     note: str = ""
     divisions: list[OrgDivisionOut]
+
+
+class BusinessPlansOut(BaseModel):
+    division: str = Field(description="프로필의 본부·부")
+    team: str = Field(description="프로필의 팀")
+    plans: list[str] = Field(description="그 팀의 주요 사업계획(경영정보시스템 주요 업무보고 단위). 없으면 빈 목록")
 
 
 # ---------------------------------------------------------------- 캘린더 일정 · 할 일(계정별)

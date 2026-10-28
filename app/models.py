@@ -176,6 +176,11 @@ class HandoverSession(Base):
     units_json: Mapped[str] = mapped_column(Text, default="[]")
     # 인수인계서 양식: standard(기본 양식) | office(원내 양식, 팀장이 작성하는 인수인계). 세션을 만들 때 정하고 이후 관리자 권한이 바뀌어도 그대로 둔다
     form: Mapped[str] = mapped_column(String(20), default="standard")
+    # 팀장(원내 양식) 인사발령: 인계할 주요 사업계획(주요 업무보고 단위)과 현안. 문자열 목록(JSON)
+    plans_json: Mapped[str] = mapped_column(Text, default="[]")
+    issues_json: Mapped[str] = mapped_column(Text, default="[]")
+    # 부서·팀별 추가자료(16장): 항목명 → 그 항목으로 올린 파일 이름 목록(JSON). 파일 자체는 일반 자료(sources)로 저장한다
+    dept_uploads_json: Mapped[str] = mapped_column(Text, default="{}")
 
     # 진행 상태: stage 는 에이전트 단계(setup → analyzing → summary → qna → composing → review)
     stage: Mapped[str] = mapped_column(String(20), default="setup")
@@ -226,7 +231,39 @@ class HandoverSession(Base):
             "task_name": self.task_name,
             "units": self.units,
             "form": self.form or "standard",  # "office" 면 AI 가 원내 양식으로 인수인계서를 만든다
+            "plans": self.plans,
+            "issues": self.issues,
+            "dept_uploads": self.dept_uploads,
         }
+
+    @staticmethod
+    def _str_list(raw: str | None) -> list[str]:
+        try:
+            rows = json.loads(raw or "[]")
+        except ValueError:
+            return []
+        return [str(x) for x in rows if isinstance(x, str) and x] if isinstance(rows, list) else []
+
+    @property
+    def plans(self) -> list[str]:
+        """인계할 주요 사업계획. 예전 세션이거나 값이 깨졌으면 빈 목록."""
+        return self._str_list(self.plans_json)
+
+    @property
+    def issues(self) -> list[str]:
+        """현안 목록. 예전 세션이거나 값이 깨졌으면 빈 목록."""
+        return self._str_list(self.issues_json)
+
+    @property
+    def dept_uploads(self) -> dict[str, list[str]]:
+        """부서·팀별 추가자료 항목별 파일 이름. 예전 세션이거나 값이 깨졌으면 빈 dict."""
+        try:
+            data = json.loads(self.dept_uploads_json or "{}")
+        except ValueError:
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        return {str(k): [str(x) for x in v if isinstance(x, str)] for k, v in data.items() if isinstance(v, list)}
 
     @property
     def units(self) -> list[dict[str, Any]]:

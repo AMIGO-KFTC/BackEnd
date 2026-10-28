@@ -54,8 +54,13 @@ def new_handover_session(
     units: list[dict[str, Any]] | None = None,
     welcome: str = DEFAULT_WELCOME,
     form: str | None = None,
+    plans: list[str] | None = None,
+    issues: list[str] | None = None,
 ) -> HandoverSession:
-    """인수인계 세션과 첫 안내 메시지를 만든다(커밋은 호출한 쪽에서). form 을 안 주면 소유자 계정으로 정한다(팀장이면 원내 양식)."""
+    """인수인계 세션과 첫 안내 메시지를 만든다(커밋은 호출한 쪽에서). form 을 안 주면 소유자 계정으로 정한다(팀장이면 원내 양식).
+
+    plans·issues 는 팀장(원내 양식) 인사발령에서 고른 주요 사업계획과 현안이다(단위업무 대신 고른다).
+    """
     row = HandoverSession(
         id=uuid.uuid4().hex,
         user_id=user_id,
@@ -74,6 +79,8 @@ def new_handover_session(
         task_name=task_name,
         units_json=json.dumps(units or [], ensure_ascii=False),
         form=form or handover_form_for(db, user_id),
+        plans_json=json.dumps(plans or [], ensure_ascii=False),
+        issues_json=json.dumps(issues or [], ensure_ascii=False),
     )
     db.add(row)
     content = f"안녕하세요, {owner_name}님. 인수인계서 작성을 도와드릴 AMIGO 입니다.\n{welcome}"

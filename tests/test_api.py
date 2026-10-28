@@ -139,7 +139,7 @@ def test_files_added_during_qna_trigger_reanalysis(client, sample_dir):
     upload(client, sid, [sample_dir / "홈페이지_운영매뉴얼.hwpx"])
     state = wait_for(client, sid, lambda s: idle(s) and s["status"] == "waiting" and len(_messages(client, sid, cursor)) > 0)
     new = _messages(client, sid, cursor)
-    assert "새 자료(홈페이지_운영매뉴얼.hwpx)를 반영했어요" in new[-1]["content"]
+    assert "새 자료(홈페이지_운영매뉴얼.hwpx)를 반영했어요" in new[-2]["content"] and new[-2]["kind"] == "info"  # 안내는 다음 질문 앞에 따로
     after = client.get(f"/api/sessions/{sid}").json()["slots"]["systems"]["items"]
     assert len(after) > before
 

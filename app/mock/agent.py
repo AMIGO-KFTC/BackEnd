@@ -206,6 +206,16 @@ class MockAgent:
             st["document"] = render_document(profile=st["profile"], slots=st["slots"], gaps=st["gaps"], sources=st["sources"], version=st["document_version"])
             return {"markdown": st["document"], "version": st["document_version"]}
 
+    def rerender(self, thread_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        """인계자 정보를 patch 로 갱신하고 같은 버전으로 문서를 다시 그린다(부서·팀별 추가자료 등록)."""
+        self.update_profile(thread_id, patch)
+        with self._lock(thread_id):
+            st = self._ready(thread_id)
+            if not st["document"]:
+                raise AgentStateError("아직 생성된 인수인계서가 없습니다.")
+            st["document"] = render_document(profile=st["profile"], slots=st["slots"], gaps=st["gaps"], sources=st["sources"], version=st["document_version"])
+            return {"markdown": st["document"], "version": st["document_version"]}
+
     def update_profile(self, thread_id: str, patch: dict[str, Any]) -> bool:
         with self._lock(thread_id):
             st = self._states.get(thread_id)

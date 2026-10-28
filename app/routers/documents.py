@@ -7,12 +7,13 @@ AI 가 만든 초안과 사용자가 화면에서 고친 문서는 모두 docume
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Literal
 from urllib.parse import quote
 
 from amigo_agent import AgentStateError
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -32,11 +33,15 @@ from ..schemas import (
     MyDocumentsOut,
 )
 from ..services.container import Services
-from ..services.documents import ORIGIN_LABELS, add_version, latest_version, merge_gantt_rows
+from ..services.department_notes import department_notes_for
+from ..services.documents import ORIGIN_LABELS, add_version, latest_version, merge_gantt_rows, replace_section
 from ..services.exporters import strip_citation_marks, to_docx, to_pdf
 from .deps import current_user, get_db, get_services, load_session, optional_user
+from .sources import store_uploads
 
-router = APIRouter(prefix="/api/sessions/{session_id}", tags=["documents"])
+logger = logging.getLogger(__name__)
+
+router =APIRouter(prefix="/api/sessions/{session_id}", tags=["documents"])
 mine_router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 MEDIA_TYPES = {
@@ -213,6 +218,59 @@ def edit_gantt(
         merged = merge_gantt_rows(row.document_md, rendered)
         if merged != row.document_md:
             add_version(db, row, merged, origin="user", based_on=row.document_version, note="월별 일정표 수정", author=user)
+    row.ai_document_md = rendered  # AI 가 다시 그린 문서는 이미 반영했으므로 스냅숏 동기화가 따로 쌓지 않게
+    db.commit()
+    services.runner._sync_snapshot(session_id)
+    return get_document(session_id, db)
+
+
+@router.post("/dept-files", response_model=DocumentOut, summary="부서·팀별 추가자료(16장) 항목에 파일 등록(문서 다시 그림)")
+async def upload_dept_files(
+    session_id: str,
+    item: str = Form(..., max_length=200, description="파일을 붙일 항목(부서·팀별 인수인계 목록의 항목명)"),
+    files: list[UploadFile] = File(..., description="그 항목의 자료 파일(여러 개)"),
+    db: Session = Depends(get_db),
+    services: Services = Depends(get_services),
+    user: User | None = Depends(optional_user),
+):
+    """완성 문서 화면에서 16장 항목별로 파일을 올린다.
+
+    - 파일은 일반 자료(sources)로 저장·적재해 근거 자료에 나오게 한다(AI 재분석은 하지 않는다).
+    - 항목별 파일 이름을 세션에 쌓고, AI 가 Claude 호출 없이 문서를 다시 그린다.
+    - 현재 문서가 AI 초안이면 그 버전을 그 자리에서 고치고, 직접 고친 문서였다면 16장만 바꿔 새 버전으로 저장한다.
+    """
+    row = load_session(db, session_id)
+    _ensure_editable(services, row, None)
+    item = " ".join(item.split())
+    if not item:
+        raise HTTPException(status_code=400, detail="파일을 붙일 항목을 골라 주세요.")
+    notes = department_notes_for(row.organization)
+    allowed = [" ".join(x.split()) for x in notes["items"]] if notes else []
+    if allowed and item not in allowed:
+        raise HTTPException(status_code=400, detail=f"부서·팀별 추가자료 목록에 없는 항목입니다: {item}")
+    created, accepted = await store_uploads(db, services, row, files)
+    services.runner.run_ingest(session_id, accepted, reanalyze=False)
+    names = [s.name for s in created if s.id in accepted]
+    if not names:
+        errors = "; ".join(f"{s.name}: {s.error}" for s in created if s.error)
+        raise HTTPException(status_code=400, detail=f"파일을 등록하지 못했습니다. {errors}".strip())
+    uploads = row.dept_uploads
+    uploads[item] = [*uploads.get(item, []), *(n for n in names if n not in uploads.get(item, []))]
+    row.dept_uploads_json = json.dumps(uploads, ensure_ascii=False)
+    db.commit()
+    try:
+        result = services.agent.rerender(session_id, {"dept_uploads": uploads})
+    except AgentStateError:  # 대화 상태가 없으면 문서는 그대로 두고, 다음 작업에서 인계자 정보 갱신으로 반영한다
+        logger.warning("dept files rerender skipped for %s", session_id, exc_info=True)
+        return get_document(session_id, db)
+    rendered = str(result["markdown"])
+    current = latest_version(db, session_id)
+    if current is not None and current.origin == "ai" and current.version == row.document_version:
+        current.markdown = row.document_md = rendered
+    else:
+        merged = replace_section(row.document_md, rendered)
+        if merged != row.document_md:
+            add_version(db, row, merged, origin="user", based_on=row.document_version, note="부서별 추가자료 등록", author=user)
     row.ai_document_md = rendered  # AI 가 다시 그린 문서는 이미 반영했으므로 스냅숏 동기화가 따로 쌓지 않게
     db.commit()
     services.runner._sync_snapshot(session_id)

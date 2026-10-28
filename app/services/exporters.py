@@ -73,8 +73,8 @@ def _runs(children: list[dict], bold: bool = False, italic: bool = False) -> lis
             out.extend(_runs(node.get("children", []), bold, True))
         elif kind == "codespan":
             out.append(Run(node.get("raw", ""), bold, italic, code=True))
-        elif kind in ("softbreak", "linebreak"):
-            out.append(Run("\n", bold, italic))
+        elif kind in ("softbreak", "linebreak") or (kind == "inline_html" and re.fullmatch(r"<br\s*/?>", str(node.get("raw", "")).strip(), re.I)):
+            out.append(Run("\n", bold, italic))  # 표 칸 안의 <br> 도 줄바꿈
         elif kind == "link":
             out.extend(_runs(node.get("children", []), bold, italic))
         elif "children" in node:
@@ -441,13 +441,16 @@ def to_pdf(markdown: str, *, title: str = "업무 인수인계서") -> bytes:
         1: ParagraphStyle("h1", parent=body, fontName=bold, fontSize=18, leading=24, textColor=navy, spaceAfter=10),
         2: ParagraphStyle("h2", parent=body, fontName=bold, fontSize=13, leading=18, textColor=navy, spaceBefore=10, spaceAfter=6),
         3: ParagraphStyle("h3", parent=body, fontName=bold, fontSize=11, leading=16, textColor=navy, spaceBefore=6, spaceAfter=4),
+        # 인사발령 '주요 내용'의 묶음 제목(#### 1) 정기업무)과 세부업무 제목(##### 가. 세부업무)
+        4: ParagraphStyle("h4", parent=body, fontName=bold, fontSize=10.5, leading=15, textColor=colors.HexColor("#5B45B0"), spaceBefore=5, spaceAfter=3),
+        5: ParagraphStyle("h5", parent=body, fontName=bold, fontSize=10, leading=14.5, textColor=navy, spaceBefore=4, spaceAfter=3),
     }
 
     page_width = A4[0] - 36 * mm
     story = []
     for block in markdown_blocks(markdown):
         if block.kind == "heading":
-            story.append(Paragraph(_markup(block.runs), headings[min(block.level, 3)]))
+            story.append(Paragraph(_markup(block.runs), headings[min(block.level, 5)]))
             if block.level == 2:
                 story.append(HRFlowable(width="100%", thickness=0.6, color=colors.HexColor("#C9D3E3"), spaceAfter=4))
         elif block.kind == "paragraph":

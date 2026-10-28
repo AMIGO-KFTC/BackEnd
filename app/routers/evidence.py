@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from amigo_agent.render import evidence_items
 from amigo_agent.template import SLOTS, slots_for
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -47,18 +48,36 @@ def _rendered_slots(row: HandoverSession) -> list:
     return list(slots_for(row.profile()))
 
 
-def number_citations(row: HandoverSession) -> list[dict[str, Any]]:
-    """문서와 같은 순서로 근거에 번호를 매긴다(첫 등장 위치의 장·항목을 함께 기록)."""
+def _document_items(row: HandoverSession) -> list[tuple[Any, dict]]:
+    """근거 번호를 다는 항목(장, 항목)을 문서에 나온 순서대로. 렌더러(amigo_agent.render.evidence_items)와 같은 순서여야 화면 번호와 맞는다.
+
+    팀장 양식과 '주요 내용'(단위업무별 묶음)으로 쓴 문서는 렌더러의 순서를 그대로 쓰고, 그 전 형식의 문서는 장 순서로 매긴다.
+    인계 유형을 바꿔도 이미 쓴 문서의 번호가 바뀌지 않게 문서 제목으로 유형을 정한다.
+    """
     slots = row.slots
-    numbered: dict[str, dict[str, Any]] = {}
+    md = row.document_md or ""
+    profile = row.profile()
+    grouped = re.search(r"^## \d+\. 주요 내용\s*$", md, re.M)
+    if profile.get("form") == "office" or grouped:
+        if grouped:
+            profile["mode"] = "reassignment"
+        return evidence_items(profile, slots)
+    out = []
     for spec in _rendered_slots(row):
         if not spec.evidence or spec.embed_into:  # 근거 번호를 달지 않는 장(업무 단위 요약, 다른 장 안에 들어가는 협업관계)
             continue
-        for item in (slots.get(spec.key) or {}).get("items") or []:
-            for c in item.get("citations") or []:
-                key = f"{c.get('label')}|{c.get('chunk_id') or c.get('quote', '')[:40]}"
-                if key not in numbered:
-                    numbered[key] = {**c, "number": len(numbered) + 1, "slot": spec.key, "item_title": str(item.get("title") or "")}
+        out += [(spec, item) for item in (slots.get(spec.key) or {}).get("items") or []]
+    return out
+
+
+def number_citations(row: HandoverSession) -> list[dict[str, Any]]:
+    """문서와 같은 순서로 근거에 번호를 매긴다(첫 등장 위치의 장·항목을 함께 기록)."""
+    numbered: dict[str, dict[str, Any]] = {}
+    for spec, item in _document_items(row):
+        for c in item.get("citations") or []:
+            key = f"{c.get('label')}|{c.get('chunk_id') or c.get('quote', '')[:40]}"
+            if key not in numbered:
+                numbered[key] = {**c, "number": len(numbered) + 1, "slot": spec.key, "item_title": str(item.get("title") or "")}
     return list(numbered.values())
 
 
