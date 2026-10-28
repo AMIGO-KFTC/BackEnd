@@ -7,7 +7,9 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
-from app.services.handover_calendar import parse_schedule, routine_months
+from types import SimpleNamespace
+
+from app.services.handover_calendar import parse_schedule, plan_for, routine_months
 
 TODAY = date(2026, 10, 25)  # 일요일
 
@@ -54,6 +56,26 @@ def test_dated_items_go_to_calendar():
     # 반복 + 날짜가 같이 있으면 둘 다
     assert parse("매년 12월 초(현재 인증서 만료 2026-12-15)") == ([("2026-12-15", "마감")], "yearly")
     assert parse("해당 없음") == ([], None)
+
+
+def test_gantt_periods_go_to_calendar_as_start_and_end():
+    """일정 명세표(업무 단위·팀장 사업계획의 계획기간)의 막대는 구간마다 시작일·종료일로 넣는다. 지난 시작일도 넣는다."""
+    slots = {
+        "overview": {"items": [{"fields": {"name": "차액 정산", "period": "2026.03~2026.12"}},
+                               {"fields": {"name": "참가기관 관리", "period": "3월~4월; 11월~2월"}},
+                               {"fields": {"name": "장애 대응", "period": "연중 상시"}}]},
+        "office_plans": {"items": [{"fields": {"name": "플랫폼 구축", "period": "2026.11~2027.02"}}]},
+    }
+    row = SimpleNamespace(id="s1", slots=slots, handover_date="2026-11-20")
+    dated, routines = plan_for(row, TODAY)
+    assert [(d, text) for _, d, text in dated] == [
+        ("2026-03-01", "[인수] 차액 정산 · 시작"), ("2026-03-01", "[인수] 참가기관 관리 · 시작"), ("2026-04-30", "[인수] 참가기관 관리 · 종료"),
+        ("2026-11-01", "[인수] 참가기관 관리 · 시작"), ("2026-11-01", "[인수] 플랫폼 구축 · 시작"), ("2026-12-31", "[인수] 차액 정산 · 종료"),
+        ("2027-02-28", "[인수] 참가기관 관리 · 종료"), ("2027-02-28", "[인수] 플랫폼 구축 · 종료"),
+    ]
+    assert routines == []  # 다른 일정이 있으면 '연중 상시' 막대는 넣지 않는다(정기업무 장과 겹침)
+    only = SimpleNamespace(id="s2", slots={"overview": {"items": [{"fields": {"name": "장애 대응", "period": "연중 상시"}}]}}, handover_date="")
+    assert [(cadence, name) for _, cadence, name, _ in plan_for(only, TODAY)[1]] == [("other", "장애 대응")]  # 그것뿐이면 정기 업무로
 
 
 @pytest.fixture()

@@ -10,7 +10,9 @@
 어디서 읽나(인수인계서 장 = AI 템플릿의 슬롯)
 - regular(정기업무)의 timing(수행 시기)       예: "매월 5영업일 이내", "분기별(1·4·7·10월)", "매년 12월 초(인증서 만료 2026-12-15)"
 - leave_tasks(장기휴가 세부 업무)의 schedule   예: "11/14까지 검수 완료", "매주 금요일 실적 확인"
-- overview(업무 단위 요약)의 period(계획기간)  예: "2026.03~2026.12" → 시작·종료일만(반복 문구는 정기업무 장이 맡는다)
+- 일정 명세표(월별 막대)의 계획기간: overview(업무 단위)·office_plans(팀장 사업계획)의 period
+  예: "2026.03~2026.12", "11월~2월" → 막대가 이어지는 구간마다 시작일(첫날)·종료일(말일). 일정표에 그려진 기간이므로
+  이미 지난 시작일도 넣는다(일정표와 같은 해석: amigo_agent.periods.plan_span). '상시'는 정기업무 장이 맡는다.
 """
 
 from __future__ import annotations
@@ -23,6 +25,8 @@ from datetime import date, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+
+from amigo_agent.periods import plan_span
 
 from ..models import HandoverSession, PlannerEvent, PlannerRoutine, User
 
@@ -177,12 +181,45 @@ def _field(item: dict, key: str) -> str:
 def schedule_sources(slots: dict) -> list[tuple[str, int, str, str, bool, bool]]:
     """(슬롯, 항목 순번, 업무명, 일정 문구, 반복 업무 장인지, 정기 업무로 남길지)."""
     out = []
-    for slot, key, recurring, keep_routine in (("regular", "timing", True, True), ("leave_tasks", "schedule", False, True), ("overview", "period", False, False)):
+    for slot, key, recurring, keep_routine in (("regular", "timing", True, True), ("leave_tasks", "schedule", False, True)):
         for i, item in enumerate((slots.get(slot) or {}).get("items") or []):
             name, text = _field(item, "name") or (item.get("title") or "").strip(), _field(item, key)
             if name and text:
                 out.append((slot, i, name, text, recurring, keep_routine))
     return out
+
+
+GANTT_SOURCES = (("overview", "period"), ("office_plans", "period"))  # 일정 명세표(월별 막대)에 그리는 장과 계획기간 칸
+
+
+def gantt_spans(slots: dict, base_year: int) -> list[tuple[str, int, str, str, date | None, date | None]]:
+    """일정 명세표의 막대: (슬롯, 항목 순번, 업무명, 계획기간, 시작일, 종료일). 막대가 끊기면 구간마다 따로.
+    '상시·매월'처럼 일정표 전체에 막대가 그려지는 행은 시작·종료일 없이(None) 한 번 돌려준다(정기 업무로 넣는다)."""
+    out = []
+    for slot, key in GANTT_SOURCES:
+        for i, item in enumerate((slots.get(slot) or {}).get("items") or []):
+            name, text = _field(item, "name") or (item.get("title") or "").strip(), _field(item, key)
+            if not (name and text):
+                continue
+            span, always = plan_span(text, base_year)
+            if always:
+                out.append((slot, i, name, text, None, None))
+                continue
+            months = sorted(y * 12 + m - 1 for y, m in span)
+            runs: list[list[int]] = []
+            for n in months:
+                if runs and n == runs[-1][1] + 1:
+                    runs[-1][1] = n
+                else:
+                    runs.append([n, n])
+            for a, b in runs:
+                out.append((slot, i, name, text, date(a // 12, a % 12 + 1, 1), _month_end(date(b // 12, b % 12 + 1, 1))))
+    return out
+
+
+def _base_year(row: HandoverSession, today: date) -> int:
+    m = re.match(r"(20\d{2})", row.handover_date or "")
+    return int(m.group(1)) if m else today.year
 
 
 def _key(prefix: str, *parts: object) -> str:
@@ -200,6 +237,21 @@ def plan_for(row: HandoverSession, today: date) -> tuple[list[tuple[str, str, st
             dated.append((_key("ho", row.id, slot, index, d.isoformat(), label), d.isoformat(), content[:200]))
         if parsed.cadence and keep_routine:
             routines.append((_key("hr", row.id, slot, index), parsed.cadence, name[:200], text[:200]))
+    # 상시·매월 막대(일정표 전체): 보통 정기업무 장의 수행 시기와 같은 내용이라, 그 장에서 아무것도 못 찾았을 때만 문구로 넣는다
+    always: list[tuple[str, int, str, str]] = []
+    for slot, index, name, text, start, end in gantt_spans(row.slots, _base_year(row, today)):
+        if start is None or end is None:
+            always.append((slot, index, name, text))
+            continue
+        for d, label in ((start, "시작"), (end, "종료")):
+            if d <= today + timedelta(days=HORIZON_DAYS):
+                dated.append((_key("ho", row.id, slot, index, d.isoformat(), label), d.isoformat(), f"{PREFIX} {name} · {label}"[:200]))
+    if not routines and not any(key.startswith("ho") for key, _, _ in dated):
+        for slot, index, name, text in always:
+            parsed = parse_schedule(text, today, recurring=True)
+            for d, label in parsed.dates:
+                dated.append((_key("ho", row.id, slot, index, d.isoformat(), label), d.isoformat(), (f"{PREFIX} {name}" + (f" · {label}" if label else ""))[:200]))
+            routines.append((_key("hr", row.id, slot, index), parsed.cadence or "other", name[:200], text[:200]))
     dated.sort(key=lambda e: e[1])
     return dated, routines
 
