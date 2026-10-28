@@ -24,6 +24,9 @@ from ..services.org_duties import has_team, team_options
 from .deps import COOKIE_NAME, as_utc, current_user, get_db, get_services, request_token, user_out
 from .me import email_taken, employee_no_taken
 
+DEFAULT_POSITION = "계장"  # 가입할 때 정하는 기본 직책(이후 내 정보에서 수정)
+
+
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 LOGIN_FAILED = "사번 또는 비밀번호가 올바르지 않습니다."
@@ -64,8 +67,8 @@ def signup(body: SignupIn, db: Session = Depends(get_db), services: Services = D
     if employee_no_taken(db, employee_no):
         raise HTTPException(status_code=409, detail="이미 다른 계정이 쓰고 있는 사번입니다.")
     user = User(login_id=login_id, password_hash=hash_password(body.password), name=body.name, email=email, employee_no=employee_no)
-    if assign_team:  # 가입할 때 팀을 정해 두면 내 정보를 고치지 않아도 인수인계 시작 화면에 팀의 단위업무가 나온다(직위는 관리자가 정한다)
-        user.profile = UserProfile(department=body.department.strip(), team=body.team.strip(), position="")
+    if assign_team:  # 가입할 때 팀을 정해 두면 내 정보를 고치지 않아도 인수인계 시작 화면에 팀의 단위업무가 나온다. 직책은 모두 '계장'으로 시작하고 내 정보에서 고친다
+        user.profile = UserProfile(department=body.department.strip(), team=body.team.strip(), position=DEFAULT_POSITION)
     db.add(user)
     try:
         db.commit()

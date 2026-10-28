@@ -109,6 +109,7 @@ def list_messages(
         has_attachments=has_attachments,
         important=important,
         keywords=keywords,
+        team=user.profile.team if user.profile else "",
         page=page,
         size=size,
     )

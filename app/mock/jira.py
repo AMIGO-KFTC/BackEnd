@@ -198,8 +198,21 @@ ISSUES: list[Issue] = [
     _i("WEB-31", "버그", "모바일 메인 배너 겹침", "할 일", prio="보통", who="박준호", by="이서연", sprint=WEBS, pts=1, created="2026-10-21", updated="2026-10-21"),
 ]
 
+DEFAULT_PROJECT_KEYS = {p.key for p in PROJECTS}  # 기본(팀을 모를 때) 프로젝트
+
+from . import team_jira  # noqa: E402  팀별 프로젝트·이슈를 더한다(IT개발팀·디지털사업팀·법무팀·카드운영팀·기획조정팀)
+
+PROJECTS += team_jira.PROJECTS
+ISSUES += team_jira.ISSUES
+TEAM_PROJECT_KEYS = team_jira.TEAM_PROJECT_KEYS
 _BY_KEY = {i.key: i for i in ISSUES}
 _PROJECTS = {p.key: p for p in PROJECTS}
+
+
+def visible_keys(team: str = "") -> set[str]:
+    """사용자의 팀이 보는 프로젝트 키. 팀별 데이터가 있는 팀은 그 팀 프로젝트, 아니면 기본 프로젝트."""
+    key = TEAM_PROJECT_KEYS.get((team or "").strip())
+    return {key} if key else set(DEFAULT_PROJECT_KEYS)
 
 
 # ---------------------------------------------------------------- 계산
@@ -264,8 +277,9 @@ def project_summary(project: Project) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------- 조회
-def list_projects() -> list[dict[str, Any]]:
-    return [project_summary(p) for p in PROJECTS]
+def list_projects(team: str = "") -> list[dict[str, Any]]:
+    keys = visible_keys(team)
+    return [project_summary(p) for p in PROJECTS if p.key in keys]
 
 
 def get_project(key: str) -> Project | None:
@@ -280,11 +294,14 @@ def _terms(query: str) -> list[str]:
     return [t for t in re.split(r"\s+", query.strip().lower()) if t]
 
 
-def search_issues(query: str = "", project: str = "", status: str = "", assignee: str = "", type_: str = "", limit: int = 100) -> dict[str, Any]:
+def search_issues(query: str = "", project: str = "", status: str = "", assignee: str = "", type_: str = "", limit: int = 100, team: str = "") -> dict[str, Any]:
     """검색어(띄어쓰기로 여러 개, 모두 포함)·프로젝트·상태·담당자·유형으로 거른 이슈(최근 수정 순)."""
     terms = _terms(query)
     rows = []
+    keys = visible_keys(team)
     for issue in ISSUES:
+        if issue.project not in keys:
+            continue
         if project and issue.project != project.upper():
             continue
         if status and issue.status != status:
@@ -298,7 +315,7 @@ def search_issues(query: str = "", project: str = "", status: str = "", assignee
             continue
         rows.append(issue)
     rows.sort(key=lambda i: (i.updated, i.key), reverse=True)
-    assignees = sorted({i.assignee for i in ISSUES if i.assignee and (not project or i.project == project.upper())})
+    assignees = sorted({i.assignee for i in ISSUES if i.assignee and i.project in keys and (not project or i.project == project.upper())})
     return {"query": query.strip(), "total": len(rows), "issues": [issue_summary(i) for i in rows[: max(1, limit)]], "statuses": STATUSES, "types": TYPES, "assignees": assignees}
 
 

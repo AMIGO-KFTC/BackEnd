@@ -181,7 +181,7 @@ def view_page(pageId: str = Query(...)):
 
 @router.get("/dosearchsite.action", response_class=HTMLResponse)
 def search(queryString: str = "", where: str = ""):
-    found = confluence.search_pages(queryString, space=where.upper())
+    found = confluence.search_pages(queryString, space=where.upper(), team="*")
     terms = found["terms"]
     rows = "".join(
         f"""<li class="result"><a class="result-title" href="{_page_href(r['id'])}">{_mark(r['title'], terms)}</a>

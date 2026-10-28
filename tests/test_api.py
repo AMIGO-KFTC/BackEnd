@@ -127,21 +127,20 @@ def test_links_are_validated_and_blocked_hosts_fail(client):
     assert confluence["link_type"] == "confluence"
 
 
-def test_files_added_during_qna_trigger_reanalysis(client, sample_dir):
+def test_file_added_during_a_question_is_read_as_its_answer(client, sample_dir):
+    """질의응답 중 묻고 있는 질문이 있을 때 올린 자료는 전체 재분석 없이 그 질문의 답으로 해석한다(정리 확인 또는 재질문)."""
     sid = client.post("/api/sessions", json=PROFILE).json()["id"]
     upload(client, sid, [sample_dir / "업무정의서_웹서비스팀.pdf"])
     wait_for(client, sid, idle)
     client.post(f"/api/sessions/{sid}/analyze")
     state = wait_for(client, sid, lambda s: s["status"] == "waiting")
-    before = len(state["session"]["slots"]["systems"]["items"])
     cursor = state["messages"][-1]["id"]
 
     upload(client, sid, [sample_dir / "홈페이지_운영매뉴얼.hwpx"])
-    state = wait_for(client, sid, lambda s: idle(s) and s["status"] == "waiting" and len(_messages(client, sid, cursor)) > 0)
+    wait_for(client, sid, lambda s: idle(s) and s["status"] == "waiting" and len(_messages(client, sid, cursor)) > 0)
     new = _messages(client, sid, cursor)
-    assert "새 자료(홈페이지_운영매뉴얼.hwpx)를 반영했어요" in new[-2]["content"] and new[-2]["kind"] == "info"  # 안내는 다음 질문 앞에 따로
-    after = client.get(f"/api/sessions/{sid}").json()["slots"]["systems"]["items"]
-    assert len(after) > before
+    assert not any("새 자료(홈페이지_운영매뉴얼.hwpx)를 반영했어요" in m["content"] for m in new)  # 재분석 안내가 없다
+    assert new[-1]["role"] == "assistant"
 
 
 def test_busy_session_rejects_parallel_requests(client, sample_dir):
