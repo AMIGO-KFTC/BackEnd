@@ -200,7 +200,7 @@ ISSUES: list[Issue] = [
 
 DEFAULT_PROJECT_KEYS = {p.key for p in PROJECTS}  # 기본(팀을 모를 때) 프로젝트
 
-from . import team_jira  # noqa: E402  팀별 프로젝트·이슈를 더한다(IT개발팀·디지털사업팀·법무팀·카드운영팀·기획조정팀)
+from . import team_jira  # noqa: E402  팀별 프로젝트·이슈를 더한다(IT아미고팀·디지털사업팀·법무팀·페이먼트사업팀·기획조정팀)
 
 PROJECTS += team_jira.PROJECTS
 ISSUES += team_jira.ISSUES

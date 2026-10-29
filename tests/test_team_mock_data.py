@@ -8,11 +8,10 @@ from app.main import create_app
 from app.services.org_duties import has_team, team_options
 
 TEAMS = {
-    "IT개발팀": ("디지털사업본부", "배포", "ITD", "2001"),
-    "디지털사업팀": ("디지털사업본부", "신규 서비스", "DBZ", "2101"),
-    "법무팀": ("경영지원본부", "계약", "LGL", "2201"),
-    "카드운영팀": ("카드사업본부", "카드", "CRD", "2301"),
-    "기획조정팀": ("기획조정본부", "경영", "PLN", "2401"),
+    "디지털사업팀": ("디지털금융부", "신규 서비스", "DBZ", "2101"),
+    "법무팀": ("총무부", "계약", "LGL", "2201"),
+    "페이먼트사업팀": ("결제사업부", "카드", "CRD", "2301"),
+    "기획조정팀": ("경영전략부", "경영", "PLN", "2401"),
 }
 
 
@@ -31,10 +30,19 @@ def signup_login(client, login_id: str, department: str = "", team: str = ""):
 
 
 def test_all_five_teams_are_selectable_at_signup():
-    for team, (division, *_rest) in TEAMS.items():
+    teams = {**TEAMS, "IT아미고팀": ("IT서비스부",)}
+    for team, (division, *_rest) in teams.items():
         assert has_team(division, team)
     names = [t for row in team_options() for t in row["teams"]]
-    assert all(names.count(team) == 1 for team in TEAMS)  # 법무팀 등 중복 없이
+    assert all(names.count(team) == 1 for team in teams) and len(names) == 5  # 법무팀 등 중복 없이, 팀은 5개뿐
+
+
+def test_it_operations_team_sees_the_default_data(client):
+    """기본 메일·지라·컨플루언스 데이터는 IT아미고팀의 것이다."""
+    signup_login(client, "itops", "IT서비스부", "IT아미고팀")
+    mails = client.get("/api/mail/messages", params={"size": 50}).json()["messages"]
+    assert mails and all(m["id"].startswith("m-") for m in mails)
+    assert "WEB" in {p["key"] for p in client.get("/api/integrations/jira/projects").json()["projects"]}
 
 
 @pytest.mark.parametrize("team", list(TEAMS))
@@ -55,7 +63,7 @@ def test_team_user_sees_own_team_data(client, team):
 
 
 def test_card_team_sees_card_mails_and_default_team_does_not(client):
-    signup_login(client, "cardu", "카드사업본부", "카드운영팀")
+    signup_login(client, "cardu", "결제사업부", "페이먼트사업팀")
     mails = client.get("/api/mail/messages", params={"q": "정산", "size": 50}).json()["messages"]
     assert mails and all(m["id"].startswith("crd-") for m in mails)
     client.post("/api/auth/logout")
@@ -68,7 +76,8 @@ def test_card_team_sees_card_mails_and_default_team_does_not(client):
 
 
 def test_unknown_team_falls_back_to_default(client):
-    signup_login(client, "other", "경영지원본부", "재무팀")
+    signup_login(client, "other")
+    assert client.put("/api/profile", json={"department": "없는본부", "position": "과장", "team": "없는팀", "name": "테스터"}).status_code == 200  # 목록에 없는 임의의 팀
     mails = client.get("/api/mail/messages", params={"size": 50}).json()["messages"]
     assert all(m["id"].startswith("m-") for m in mails)
     assert "WEB" in {p["key"] for p in client.get("/api/integrations/jira/projects").json()["projects"]}

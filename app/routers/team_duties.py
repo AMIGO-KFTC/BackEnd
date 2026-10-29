@@ -18,7 +18,7 @@ from .deps import as_utc, current_user, get_db
 
 router = APIRouter(prefix="/api/team-duties", tags=["team-duties"])
 
-MAX_DUTIES = 50
+MAX_DUTIES = 6  # 팀이 저장해 둘 수 있는 단위 업무(팀 업무) 수
 NO_ORGANIZATION = "프로필에 부서·팀이 없어 팀 업무 목록을 쓸 수 없습니다. 먼저 프로필을 입력해 주세요."
 NOT_EDITOR = "팀 업무 목록은 팀 관리자만 고칠 수 있습니다."
 
