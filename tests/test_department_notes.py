@@ -15,30 +15,25 @@ def test_default_file_covers_every_team_in_mock_data_in_the_table_form():
     data = json.loads(DEFAULT_FILE.read_text(encoding="utf-8"))
     assert data["title"].startswith("부서・팀(반, 사무소)별 인수인계 목록")
     teams = {f"{d['부팀명']} {t['부팀명']}" for d in data["부서"] for t in d["팀"]}
-    assert {"디지털전략부 웹서비스팀", "디지털전략부 IT운영팀", "디지털본부 IT아미고팀", "디지털본부 AI개발팀",
-            *(f"경영지원본부 {t}" for t in ("재무팀", "정보보호팀", "IT지원팀", "법무팀", "총무팀", "홍보팀", "인사팀"))} <= teams
-    # 노션 '추가 요구사항 정의' 관리자용 5): 부서별 추가자료가 있는 17개 팀
-    notion = {"전략기획팀", "커뮤니케이션실", "업무총괄팀", "노사협력팀", "재무회계팀", "재산관리팀", "안전관리실", "지로업무팀", "CMS업무팀",
-              "공공납부팀", "어음업무팀", "사무소", "법인사업팀", "뱅크포스팀", "스마트결제사업팀", "감사실", "운영주관팀"}
-    assert notion <= {t["부팀명"] for d in data["부서"] for t in d["팀"]} and len(teams) == 11 + 17 + 4  # +4: 팀별 가상 데이터 팀(IT개발팀·디지털사업팀·카드운영팀·기획조정팀)
+    assert teams == {"총무부 법무팀", "경영전략부 기획조정팀", "디지털사업본부 IT업무운영팀", "디지털금융부 디지털사업팀", "결제사업부 페이먼트사업팀"}  # 팀 5개
     for d in data["부서"]:  # 형태: 부팀명 / 목록 / 비고 (부 아래에 팀)
         assert set(d) == {"부팀명", "목록", "비고", "팀"}
         for t in d["팀"]:
             assert set(t) == {"부팀명", "목록", "비고"} and t["목록"] and all(isinstance(v, str) and v and not v.startswith("가.") for v in t["목록"])
 
 
-@pytest.mark.parametrize("organization", ["디지털전략부 웹서비스팀", "디지털전략부 · 웹서비스팀", "디지털전략부  웹서비스팀"])
+@pytest.mark.parametrize("organization", ["디지털사업본부 IT업무운영팀", "디지털사업본부 · IT업무운영팀", "디지털사업본부  IT업무운영팀"])
 def test_organization_matching_ignores_spaces_and_middle_dots(organization):
     info = department_notes_for(organization)
-    assert info and info["department"] == "디지털전략부 웹서비스팀"
-    assert info["items"][0] == "홈페이지 유지보수 계약 명세표" and info["note"].startswith("웹 접근성 인증서 사본 첨부\n- ")
-    assert "경영지원본부 재무팀" in info["others"] and "디지털전략부 웹서비스팀" not in info["others"]
-    assert "디지털전략부" not in info["others"]  # 목록이 빈 부는 참고 정보에서 뺀다
+    assert info and info["department"] == "디지털사업본부 IT업무운영팀"
+    assert info["items"][0] == "시스템 구성도 및 형상 관리 대장" and info["note"].startswith("운영 서버·저장소 접근 권한 인계\n- ")
+    assert "총무부 법무팀" in info["others"] and "디지털사업본부 IT업무운영팀" not in info["others"]
+    assert "디지털사업본부" not in info["others"]  # 목록이 빈 부는 참고 정보에서 뺀다
 
 
 def test_unknown_or_empty_department_has_no_info(tmp_path):
     assert department_notes_for("") is None and department_notes_for("없는 부서") is None
-    assert department_notes_for("디지털전략부") is None  # 부 자체에는 목록이 없다
+    assert department_notes_for("디지털사업본부") is None  # 부 자체에는 목록이 없다
     custom = tmp_path / "notes.json"  # AMIGO_DEPT_NOTES_FILE 로 실제 목록을 쓰는 경우
     custom.write_text(json.dumps({"부서": [{"부팀명": "가나부", "목록": ["부 공통 대장"], "비고": "", "팀": [
         {"부팀명": "다라팀", "목록": ["규정집", 3], "비고": "열쇠 인계\n- 열쇠구분, 수량"},
@@ -47,7 +42,7 @@ def test_unknown_or_empty_department_has_no_info(tmp_path):
     assert info["items"] == ["규정집"] and info["note"] == "열쇠 인계\n- 열쇠구분, 수량" and info["others"] == {"가나부": {"items": ["부 공통 대장"], "note": ""}}
     assert department_notes_for("가나부", path=str(custom))["items"] == ["부 공통 대장"]
     assert department_notes_for("가나부 마바사무소", path=str(custom)) is None
-    assert department_notes_for("디지털전략부 웹서비스팀", path=str(custom)) is None
+    assert department_notes_for("디지털사업본부 IT업무운영팀", path=str(custom)) is None
     assert department_notes_for("가나부 다라팀", path=str(tmp_path / "missing.json")) is None
 
 
@@ -68,7 +63,7 @@ def test_team_member_sessions_are_not_asked_about_department_notes(mock_client):
 def test_office_dept_notes_only_for_the_office_form():
     from types import SimpleNamespace
 
-    org = "디지털전략부 웹서비스팀"
+    org = "디지털사업본부 IT업무운영팀"
     assert office_dept_notes(SimpleNamespace(form="standard", organization=org)) is None
     assert office_dept_notes(SimpleNamespace(form="", organization=org)) is None
     info = office_dept_notes(SimpleNamespace(form="office", organization=org))

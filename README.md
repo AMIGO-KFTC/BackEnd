@@ -654,7 +654,7 @@ RAG 메일 파서가 보낸 사람·받는 사람·일시·제목을 출처 표�
 ### 역할 · 구성원 · 받은 인수인계 · 관리자(팀장)
 
 관리자(팀장)는 `users.is_admin` 이 참인 계정입니다. 회원가입은 일반 구성원으로 만들어지고, 처음 관리자는 DB 에서 지정하며 그 뒤에는 관리자 API(`PATCH /api/admin/users/{id}/role`)로 주고 뺍니다
-(`scripts/seed_accounts.py` 가 시연용 계정 12개와 관리자 권한·팀 담당 업무·인수인계서·전송 관계를 넣습니다). 로그인·`/api/auth/me` 응답의 `user.is_admin` 으로 화면이 팀 관리 모드를 열어 줍니다.
+(`scripts/seed_accounts.py` 가 시연용 계정과 관리자 권한을 넣습니다). 로그인·`/api/auth/me` 응답의 `user.is_admin` 으로 화면이 팀 관리 모드를 열어 줍니다.
 
 인계자가 단위업무·세션을 만들 때 인수자의 로그인 아이디(`successor_login_id`)를 적으면 그 계정의 **받은 인수인계**에 나타나고, 인수자는 그 세션을
 **읽기만**(GET: 상태·문서·PDF 내려받기·근거) 할 수 있습니다. 팀 관리자는 같은 소속(부서 + 팀) 구성원의 세션을 같은 방식으로 읽을 수 있습니다.
@@ -671,8 +671,7 @@ RAG 메일 파서가 보낸 사람·받는 사람·일시·제목을 출처 표�
 | GET | `/api/admin/handovers` | 우리 팀 구성원이 인계자인 인수인계 목록(인수자·질문 수·남은 항목 포함) |
 | DELETE | `/api/admin/members/{user_id}` | 우리 팀 구성원 삭제(그 구성원의 인수인계·자료·문서 포함). 본인은 `400`, 다른 팀은 `404`, AI 처리 중이면 `409` |
 
-시연용 계정(`scripts/seed_accounts.py`, 비밀번호는 스크립트 참고, 디지털본부 3개 팀 12명): IT아미고팀(팀장 김미고 `amigoteamjang` · 대리 이도윤 `doyun` · 계장 김민준 `demo` · 계장 최환 `hwan` · 계장 박서준 `seojun` · 사원 정하은 `haeun`),
-AI개발팀(팀장 최고미 `aiteamjang` · 대리 한태양 `taeyang` · 계장 임윤희 `yunhui` · 사원 송지민 `jimin`), 정보보호팀(팀장 남궁현 `secteamjang` · 대리 이수진 `sujin`). 완성 문서·전송 관계·팀 담당 업무는 `scripts/seed_documents.py` 에 있고, 최환(`hwan`)이 완성 문서 5건·받은 인수인계 8건으로 가장 많습니다.
+시연용 계정은 `scripts/seed_accounts.py` 의 `ACCOUNTS` 에 있습니다(인수인계 데이터는 넣지 않습니다).
 
 ### 부서・팀(반, 사무소)별 인수인계 목록 (AI 분석·질문·대화에 반영)
 

@@ -191,8 +191,8 @@ def test_profile_api_still_works(client):
 
 def test_signup_with_team_starts_as_gyejang_and_can_be_edited(client):
     """회원가입 때 팀을 고르면 직책은 모두 '계장'으로 시작하고, 내 정보에서 고칠 수 있다."""
-    user = signup(client, {**ACCOUNT, "department": "디지털본부", "team": "IT아미고팀"})
-    assert user["profile"]["position"] == "계장" and user["profile"]["team"] == "IT아미고팀"
+    user = signup(client, {**ACCOUNT, "department": "디지털사업본부", "team": "IT업무운영팀"})
+    assert user["profile"]["position"] == "계장" and user["profile"]["team"] == "IT업무운영팀"
     login(client)
     res = client.patch("/api/me", json={"position": "과장"})
     assert res.status_code == 200 and res.json()["user"]["profile"]["position"] == "과장"
