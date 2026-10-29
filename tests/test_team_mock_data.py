@@ -30,7 +30,7 @@ def signup_login(client, login_id: str, department: str = "", team: str = ""):
 
 
 def test_all_five_teams_are_selectable_at_signup():
-    teams = {**TEAMS, "IT업무운영팀": ("디지털사업본부",)}
+    teams = {**TEAMS, "IT아미고팀": ("IT서비스부",)}
     for team, (division, *_rest) in teams.items():
         assert has_team(division, team)
     names = [t for row in team_options() for t in row["teams"]]
@@ -38,8 +38,8 @@ def test_all_five_teams_are_selectable_at_signup():
 
 
 def test_it_operations_team_sees_the_default_data(client):
-    """기본 메일·지라·컨플루언스 데이터는 IT업무운영팀의 것이다."""
-    signup_login(client, "itops", "디지털사업본부", "IT업무운영팀")
+    """기본 메일·지라·컨플루언스 데이터는 IT아미고팀의 것이다."""
+    signup_login(client, "itops", "IT서비스부", "IT아미고팀")
     mails = client.get("/api/mail/messages", params={"size": 50}).json()["messages"]
     assert mails and all(m["id"].startswith("m-") for m in mails)
     assert "WEB" in {p["key"] for p in client.get("/api/integrations/jira/projects").json()["projects"]}

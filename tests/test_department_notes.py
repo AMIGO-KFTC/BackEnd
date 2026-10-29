@@ -15,25 +15,25 @@ def test_default_file_covers_every_team_in_mock_data_in_the_table_form():
     data = json.loads(DEFAULT_FILE.read_text(encoding="utf-8"))
     assert data["title"].startswith("부서・팀(반, 사무소)별 인수인계 목록")
     teams = {f"{d['부팀명']} {t['부팀명']}" for d in data["부서"] for t in d["팀"]}
-    assert teams == {"총무부 법무팀", "경영전략부 기획조정팀", "디지털사업본부 IT업무운영팀", "디지털금융부 디지털사업팀", "결제사업부 페이먼트사업팀"}  # 팀 5개
+    assert teams == {"총무부 법무팀", "경영전략부 기획조정팀", "IT서비스부 IT아미고팀", "디지털금융부 디지털사업팀", "결제사업부 페이먼트사업팀"}  # 팀 5개
     for d in data["부서"]:  # 형태: 부팀명 / 목록 / 비고 (부 아래에 팀)
         assert set(d) == {"부팀명", "목록", "비고", "팀"}
         for t in d["팀"]:
             assert set(t) == {"부팀명", "목록", "비고"} and t["목록"] and all(isinstance(v, str) and v and not v.startswith("가.") for v in t["목록"])
 
 
-@pytest.mark.parametrize("organization", ["디지털사업본부 IT업무운영팀", "디지털사업본부 · IT업무운영팀", "디지털사업본부  IT업무운영팀"])
+@pytest.mark.parametrize("organization", ["IT서비스부 IT아미고팀", "IT서비스부 · IT아미고팀", "IT서비스부  IT아미고팀"])
 def test_organization_matching_ignores_spaces_and_middle_dots(organization):
     info = department_notes_for(organization)
-    assert info and info["department"] == "디지털사업본부 IT업무운영팀"
+    assert info and info["department"] == "IT서비스부 IT아미고팀"
     assert info["items"][0] == "시스템 구성도 및 형상 관리 대장" and info["note"].startswith("운영 서버·저장소 접근 권한 인계\n- ")
-    assert "총무부 법무팀" in info["others"] and "디지털사업본부 IT업무운영팀" not in info["others"]
-    assert "디지털사업본부" not in info["others"]  # 목록이 빈 부는 참고 정보에서 뺀다
+    assert "총무부 법무팀" in info["others"] and "IT서비스부 IT아미고팀" not in info["others"]
+    assert "IT서비스부" not in info["others"]  # 목록이 빈 부는 참고 정보에서 뺀다
 
 
 def test_unknown_or_empty_department_has_no_info(tmp_path):
     assert department_notes_for("") is None and department_notes_for("없는 부서") is None
-    assert department_notes_for("디지털사업본부") is None  # 부 자체에는 목록이 없다
+    assert department_notes_for("IT서비스부") is None  # 부 자체에는 목록이 없다
     custom = tmp_path / "notes.json"  # AMIGO_DEPT_NOTES_FILE 로 실제 목록을 쓰는 경우
     custom.write_text(json.dumps({"부서": [{"부팀명": "가나부", "목록": ["부 공통 대장"], "비고": "", "팀": [
         {"부팀명": "다라팀", "목록": ["규정집", 3], "비고": "열쇠 인계\n- 열쇠구분, 수량"},
@@ -42,7 +42,7 @@ def test_unknown_or_empty_department_has_no_info(tmp_path):
     assert info["items"] == ["규정집"] and info["note"] == "열쇠 인계\n- 열쇠구분, 수량" and info["others"] == {"가나부": {"items": ["부 공통 대장"], "note": ""}}
     assert department_notes_for("가나부", path=str(custom))["items"] == ["부 공통 대장"]
     assert department_notes_for("가나부 마바사무소", path=str(custom)) is None
-    assert department_notes_for("디지털사업본부 IT업무운영팀", path=str(custom)) is None
+    assert department_notes_for("IT서비스부 IT아미고팀", path=str(custom)) is None
     assert department_notes_for("가나부 다라팀", path=str(tmp_path / "missing.json")) is None
 
 
@@ -63,7 +63,7 @@ def test_team_member_sessions_are_not_asked_about_department_notes(mock_client):
 def test_office_dept_notes_only_for_the_office_form():
     from types import SimpleNamespace
 
-    org = "디지털사업본부 IT업무운영팀"
+    org = "IT서비스부 IT아미고팀"
     assert office_dept_notes(SimpleNamespace(form="standard", organization=org)) is None
     assert office_dept_notes(SimpleNamespace(form="", organization=org)) is None
     info = office_dept_notes(SimpleNamespace(form="office", organization=org))

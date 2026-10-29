@@ -16,7 +16,7 @@ from app.services.org_duties import org_duties
 from conftest import PROFILE
 from test_handovers_admin import signup
 
-TEAM_IT = {"department": "디지털사업본부", "team": "IT업무운영팀"}
+TEAM_IT = {"department": "IT서비스부", "team": "IT아미고팀"}
 
 # ---------------------------------------------------------------- 주요 사업계획 목록
 
@@ -28,8 +28,8 @@ def test_default_file_lists_plans_for_every_org_team():
     org_teams = {(d["name"], t["name"]) for d in org_duties()["divisions"] for t in d["teams"]}
     assert org_teams <= set(plans)  # 업무분장의 모든 팀에 사업계획이 있다
     assert all(4 <= len(p) <= 7 and len(set(p)) == len(p) for p in plans.values())
-    assert "CI/CD 파이프라인 고도화" in team_plans("디지털사업본부", "IT업무운영팀")
-    assert team_plans("없는 본부", "IT업무운영팀") == [] and team_plans("디지털사업본부", "없는 팀") == []
+    assert "CI/CD 파이프라인 고도화" in team_plans("IT서비스부", "IT아미고팀")
+    assert team_plans("없는 본부", "IT아미고팀") == [] and team_plans("IT서비스부", "없는 팀") == []
 
 
 def test_custom_file_is_cleaned_and_missing_file_is_empty(tmp_path):
@@ -43,9 +43,9 @@ def test_custom_file_is_cleaned_and_missing_file_is_empty(tmp_path):
 
 def test_env_override(tmp_path, monkeypatch):
     custom = tmp_path / "env-plans.json"
-    custom.write_text(json.dumps({"divisions": [{"name": "디지털사업본부", "teams": [{"name": "IT업무운영팀", "plans": ["실제 사업"]}]}]}), encoding="utf-8")
+    custom.write_text(json.dumps({"divisions": [{"name": "IT서비스부", "teams": [{"name": "IT아미고팀", "plans": ["실제 사업"]}]}]}), encoding="utf-8")
     monkeypatch.setenv("AMIGO_BUSINESS_PLANS_FILE", str(custom))
-    assert team_plans("디지털사업본부", "IT업무운영팀") == ["실제 사업"]
+    assert team_plans("IT서비스부", "IT아미고팀") == ["실제 사업"]
 
 
 def test_my_business_plans_api(client):
@@ -56,8 +56,8 @@ def test_my_business_plans_api(client):
 
     signup(client, "amigoteamjang", "김미고", TEAM_IT, "팀장", role="admin")
     body = client.get("/api/business-plans/me").json()
-    assert body["division"] == "디지털사업본부" and body["team"] == "IT업무운영팀"
-    assert body["plans"] == team_plans("디지털사업본부", "IT업무운영팀")
+    assert body["division"] == "IT서비스부" and body["team"] == "IT아미고팀"
+    assert body["plans"] == team_plans("IT서비스부", "IT아미고팀")
 
 
 # ---------------------------------------------------------------- 세션의 사업계획·현안
@@ -137,8 +137,8 @@ def mock_client(tmp_path):
 
 def _document_session(client) -> str:
     sid = next(t for t in client.get("/api/unit-tasks").json()["tasks"] if t["name"] == "기관 홈페이지 운영")["session_id"]
-    with client.app.state.services.db() as db:  # 데모 세션의 소속(웹서비스팀)은 목록에서 없어졌으니 남은 팀(IT업무운영팀)으로 바꾼다
-        db.get(HandoverSession, sid).organization = "디지털사업본부 · IT업무운영팀"
+    with client.app.state.services.db() as db:  # 데모 세션의 소속(웹서비스팀)은 목록에서 없어졌으니 남은 팀(IT아미고팀)으로 바꾼다
+        db.get(HandoverSession, sid).organization = "IT서비스부 · IT아미고팀"
         db.commit()
     return sid
 
@@ -147,7 +147,7 @@ def _files(*names: str) -> list:
     return [("files", (n, "가상 자료".encode(), "application/octet-stream")) for n in names]
 
 
-ITEM = "시스템 구성도 및 형상 관리 대장"  # department_notes.json 의 IT업무운영팀 항목
+ITEM = "시스템 구성도 및 형상 관리 대장"  # department_notes.json 의 IT아미고팀 항목
 
 
 def test_dept_files_validation(mock_client):
@@ -232,6 +232,6 @@ def test_dept_file_items_only_for_team_lead_form():
 
     from app.services.department_notes import dept_file_items
 
-    assert dept_file_items(SimpleNamespace(organization="디지털사업본부 · IT업무운영팀", form="office"))[0] == "시스템 구성도 및 형상 관리 대장"
-    assert dept_file_items(SimpleNamespace(organization="디지털사업본부 · IT업무운영팀", form="standard")) == []  # 팀원 문서에는 싣지 않는다
+    assert dept_file_items(SimpleNamespace(organization="IT서비스부 · IT아미고팀", form="office"))[0] == "시스템 구성도 및 형상 관리 대장"
+    assert dept_file_items(SimpleNamespace(organization="IT서비스부 · IT아미고팀", form="standard")) == []  # 팀원 문서에는 싣지 않는다
     assert dept_file_items(SimpleNamespace(organization="없는 팀", form="standard")) == []

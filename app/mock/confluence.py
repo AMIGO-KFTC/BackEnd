@@ -334,7 +334,7 @@ PAGES: list[Page] = [
 
 DEFAULT_SPACES = set(SPACES)  # 기본(팀을 모를 때) 스페이스
 
-from . import team_wiki  # noqa: E402  팀별 스페이스·페이지를 더한다(IT업무운영팀·디지털사업팀·법무팀·페이먼트사업팀·기획조정팀)
+from . import team_wiki  # noqa: E402  팀별 스페이스·페이지를 더한다(IT아미고팀·디지털사업팀·법무팀·페이먼트사업팀·기획조정팀)
 
 SPACES.update(dict(team_wiki.TEAM_SPACES.values()))
 PAGES += team_wiki.PAGES

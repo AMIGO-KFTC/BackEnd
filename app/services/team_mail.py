@@ -1,6 +1,6 @@
 """팀별 가상 메일함 데이터: 로그인 사용자의 팀(profile.team)에 따라 MockMailProvider 가 이 목록을 돌려준다.
 
-팀이 여기 없으면 기본 메일함(app/services/mail.py 의 _SAMPLES)을 쓴다. 기본 메일함·기본 Jira·기본 Confluence 데이터는 IT업무운영팀의 데이터다.
+팀이 여기 없으면 기본 메일함(app/services/mail.py 의 _SAMPLES)을 쓴다. 기본 메일함·기본 Jira·기본 Confluence 데이터는 IT아미고팀의 데이터다.
 항목 모양은 기본 메일함과 같다: (id, 며칠 전, 시각, 폴더, 보낸 사람, 받는 사람, 참조, 제목, 본문, 첨부, 중요). None 은 메일함 주인.
 메일 ID 는 팀마다 접두어(dbz- · lgl- · crd- · pln-)를 달아 기본 메일함(m-)과 겹치지 않는다.
 """
