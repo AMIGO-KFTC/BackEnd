@@ -32,7 +32,7 @@ def test_admin_session_uses_office_form(client):
 
 
 def test_member_session_uses_standard_form(client):
-    signup(client, "hwan", "최환", TEAM_IT, "계장")
+    signup(client, "hwan", "최기아", TEAM_IT, "계장")
     session_id = create_task(client)
 
     assert client.get(f"/api/sessions/{session_id}").json()["form"] == "standard"

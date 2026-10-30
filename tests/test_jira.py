@@ -23,7 +23,7 @@ def test_projects_search_and_detail(mock_client):
 
     found = mock_client.get("/api/integrations/jira/search", params={"q": "지라", "project": "AMG"}).json()
     assert [i["key"] for i in found["issues"]][:1] == ["AMG-13"]
-    assert mock_client.get("/api/integrations/jira/search", params={"status": "완료", "assignee": "최환"}).json()["total"] >= 2
+    assert mock_client.get("/api/integrations/jira/search", params={"status": "완료", "assignee": "최기아"}).json()["total"] >= 2
 
     epic = mock_client.get("/api/integrations/jira/issues/AMG-1").json()
     assert epic["type"] == "에픽" and len(epic["children"]) >= 5 and epic["progress"]["percent"] > 0

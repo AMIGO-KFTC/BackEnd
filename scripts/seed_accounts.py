@@ -14,11 +14,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sqlalchemy import create_engine, select  # noqa: E402
+from sqlalchemy import create_engine, select, update  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
 from app.config import get_settings  # noqa: E402
-from app.models import Base, User, UserProfile  # noqa: E402
+from app.models import Base, HandoverSession, HandoverTransfer, User, UserProfile  # noqa: E402
 from app.security import hash_password  # noqa: E402
 
 PASSWORD = "amigo1234"  # 시연용 공통 비밀번호(시드는 DB 에 직접 넣어서 가입 규칙 검사를 거치지 않는다)
@@ -26,12 +26,38 @@ PASSWORD = "amigo1234"  # 시연용 공통 비밀번호(시드는 DB 에 직접 
 # (사번, 이름, 부서(본부), 팀, 직위, 역할: admin = 팀장(users.is_admin) / member). 로그인 아이디는 항상 사번이다.
 ACCOUNTS = [
     ("1100404", "최고미", "IT서비스부", "IT아미고팀", "팀장", "admin"),
-    ("1111111", "김민준", "IT서비스부", "IT아미고팀", "계장", "member"),
+    ("1111111", "최금결", "IT서비스부", "IT아미고팀", "계장", "member"),
     ("1180521", "오세준", "디지털금융부", "디지털사업팀", "차장", "member"),
     ("1200703", "정서윤", "총무부", "법무팀", "과장", "member"),
     ("1230704", "문지혁", "결제사업부", "페이먼트사업팀", "대리", "member"),
     ("1240705", "서도하", "경영전략부", "기획조정팀", "계장", "member"),
+    # IT아미고팀 구성원(팀장 화면의 '우리 팀'은 부서 + 팀이 같은 계정이라 부서를 IT서비스부로 맞춘다)
+    ("1210815", "한서진", "IT서비스부", "IT아미고팀", "과장", "member"),
+    ("1220318", "윤지호", "IT서비스부", "IT아미고팀", "대리", "member"),
+    ("1250602", "배수아", "IT서비스부", "IT아미고팀", "계장", "member"),
+    ("1261104", "노은우", "IT서비스부", "IT아미고팀", "사원", "member"),
 ]
+
+# 예전부터 있던 계정의 이름 바꾸기(로그인 아이디 → 새 이름). 계정이 없으면 건너뛴다.
+# 이름을 복사해 저장해 둔 곳(인계자 이름·인수자·전송한 사람)도 같이 바꾼다. 이미 만들어진 인수인계서 본문·대화 기록은 고치지 않는다.
+RENAMES = {
+    "hwan": "최기아",
+    "yunhui": "임삼성",
+    "demo": "최금결",  # 예전 데모 계정(사번 1111111, 시드 계정과 같은 사람)
+}
+
+
+def set_name(db: Session, user: User, new_name: str) -> None:
+    """계정 이름을 바꾸고, 이름을 복사해 저장해 둔 곳(인계자 이름·인수자 글·전송한 사람)도 같이 바꾼다."""
+    old_name = user.name
+    if old_name == new_name:
+        return
+    user.name = new_name
+    db.execute(update(HandoverSession).where(HandoverSession.user_id == f"user:{user.id}").values(owner_name=new_name))
+    db.execute(update(HandoverTransfer).where(HandoverTransfer.sender_id == user.id).values(sender_name=new_name))
+    for row in db.scalars(select(HandoverSession).where(HandoverSession.successor.contains(old_name))):  # '임윤희 계장' 같은 인수자 글
+        row.successor = row.successor.replace(old_name, new_name)
+    print(f"이름 변경  {user.login_id:10} {old_name} → {new_name}")
 
 
 def upsert_accounts(db: Session) -> None:
@@ -44,7 +70,7 @@ def upsert_accounts(db: Session) -> None:
             print(f"계정 생성  {login_id:10} {name}")
         else:
             user.password_hash = hash_password(password)
-            user.name = name
+            set_name(db, user, name)
             print(f"계정 갱신  {login_id:10} {name}")
         user.is_admin = role == "admin"
         user.employee_no = employee_no
@@ -52,6 +78,13 @@ def upsert_accounts(db: Session) -> None:
         profile.department, profile.team, profile.position = department, team, position
         user.profile = profile
         db.flush()
+
+
+def rename_accounts(db: Session) -> None:
+    for login_id, new_name in RENAMES.items():
+        user = db.scalar(select(User).where(User.login_id == login_id))
+        if user is not None:
+            set_name(db, user, new_name)
 
 
 def main() -> None:
@@ -63,6 +96,7 @@ def main() -> None:
     _add_missing_columns(engine)
     with Session(engine) as db:
         upsert_accounts(db)
+        rename_accounts(db)
         db.commit()
     print("완료")
 
