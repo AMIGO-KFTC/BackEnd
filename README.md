@@ -159,7 +159,7 @@ cd ..\FrontEnd; npm install
 |---|---|
 | API 키 없이 시연 (기본) | 그대로 두기 → 규칙 기반 오프라인 엔진 |
 | Claude 로 실제 분석 | `ANTHROPIC_API_KEY=sk-ant-...` |
-| 모델 바꾸기 | `AMIGO_LLM_MODEL=claude-haiku-4-5`(기본, 가장 저렴) / `claude-sonnet-5-5`(약 2배) / `claude-opus-5-5`(약 4배, 품질 가장 좋음) |
+| 모델 바꾸기 | `AMIGO_LLM_MODEL=claude-opus-5-5`(기본, 품질 가장 좋음) / `claude-sonnet-5-5`(약 절반) / `claude-haiku-4-5`(가장 저렴하지만 이름·숫자를 자주 틀림) |
 | 키가 있어도 오프라인 엔진으로 | `AMIGO_LLM_MODE=offline` |
 | Claude API 비용 상한 두기 | `AMIGO_LLM_BUDGET_USD=10` (모든 작업 합계가 $10 를 넘으면 새 AI 작업을 막음, 0 이면 제한 없음) |
 | 컨플루언스 링크 수집 | `CONFLUENCE_BASE_URL` + `CONFLUENCE_PAT`(Server/DC), Cloud 는 `CONFLUENCE_EMAIL` + `CONFLUENCE_API_TOKEN` |
@@ -863,7 +863,8 @@ Word 는 '맑은 고딕'을 동아시아 글꼴로 지정하고, PDF 는 시스�
 |---|---|---|
 | `ANTHROPIC_API_KEY` | | Claude API 키. 없으면 오프라인 엔진 |
 | `AMIGO_LLM_MODE` | `auto` | `auto`(키가 있으면 Claude) / `claude` / `offline` |
-| `AMIGO_LLM_MODEL` | `claude-haiku-4-5` | 사용할 모델. 비용 순 `claude-haiku-4-5` < `claude-sonnet-5-5` < `claude-opus-5-5` |
+| `AMIGO_LLM_MODEL` | `claude-opus-5-5` | 사용할 모델. 모든 Claude 호출을 이 모델로 보낸다. 비용 순 `claude-haiku-4-5` < `claude-sonnet-5-5` < `claude-opus-5-5` |
+| `AMIGO_VISION_MODEL` | `claude-opus-5-5` | 올린 스크린샷·메신저 대화 캡처(PNG·JPG) 속 글자를 읽는 모델. `AMIGO_LLM_MODEL` 과 상관없이 기본은 Opus(이름·숫자·연락처를 정확히 읽기 위해). 비용을 줄이려면 `claude-sonnet-5-5` |
 | `AMIGO_DATA_DIR` | `./data` | SQLite DB·업로드 파일 사본·ChromaDB 저장 폴더 |
 | `AMIGO_DATABASE_URL` | (SQLite) | 예: `postgresql+psycopg://user:pw@host:5432/amigo` |
 | `AMIGO_MAX_UPLOAD_MB` | `50` | 파일 하나의 최대 크기(MB) |
