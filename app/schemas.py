@@ -1162,6 +1162,7 @@ class HandoverChatOut(BaseModel):
 class OrgTeamOut(BaseModel):
     name: str
     duties: list[str] = Field(description="이 팀의 단위업무(업무분장상 단위업무)")
+    details: dict[str, list[str]] = Field(default_factory=dict, description="단위업무 이름 → 업무분장에 적힌 세부업무(없는 단위업무는 빠진다)")
 
 
 class OrgDivisionOut(BaseModel):

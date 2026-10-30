@@ -26,6 +26,14 @@ def _names(values: Any) -> list[str]:
     return out
 
 
+def _details(values: Any) -> dict[str, list[str]]:
+    """단위업무 이름 → 세부업무 목록. 세부업무가 비었거나 모양이 틀린 단위업무는 뺀다."""
+    if not isinstance(values, dict):
+        return {}
+    out = {str(name).strip(): _names(items) for name, items in values.items() if str(name).strip()}
+    return {name: items for name, items in out.items() if items}
+
+
 @lru_cache(maxsize=4)
 def _load(path: str) -> dict[str, Any]:
     try:
@@ -39,7 +47,7 @@ def _load(path: str) -> dict[str, Any]:
         if not isinstance(division, dict) or not str(division.get("name") or "").strip():
             continue
         teams = [
-            {"name": str(team["name"]).strip(), "duties": _names(team.get("duties"))}
+            {"name": str(team["name"]).strip(), "duties": _names(team.get("duties")), "details": _details(team.get("details"))}
             for team in division.get("teams") or []
             if isinstance(team, dict) and str(team.get("name") or "").strip()
         ]
@@ -48,7 +56,7 @@ def _load(path: str) -> dict[str, Any]:
 
 
 def org_duties(path: str | None = None) -> dict[str, Any]:
-    """{title, note, divisions: [{name, teams: [{name, duties: [단위업무]}]}]}. 파일이 없거나 깨졌으면 divisions 가 빈 목록이다."""
+    """{title, note, divisions: [{name, teams: [{name, duties: [단위업무], details: {단위업무: [세부업무]}}]}]}. 파일이 없거나 깨졌으면 divisions 가 빈 목록이다."""
     return _load(path or os.getenv("AMIGO_ORG_DUTIES_FILE") or str(DEFAULT_FILE))
 
 

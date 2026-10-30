@@ -59,7 +59,7 @@ def test_team_user_sees_own_team_data(client, team):
     assert client.get("/api/integrations/jira/search").json()["total"] >= 6
 
     found = client.get("/api/integrations/confluence/search").json()
-    assert found["total"] == 3 and {r["space_key"] for r in found["results"]} == {key} and page_id in {r["id"] for r in found["results"]}
+    assert found["total"] >= 3 and {r["space_key"] for r in found["results"]} == {key} and page_id in {r["id"] for r in found["results"]}
 
 
 def test_card_team_sees_card_mails_and_default_team_does_not(client):

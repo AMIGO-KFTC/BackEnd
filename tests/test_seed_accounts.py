@@ -32,11 +32,22 @@ def test_it_amigo_team_members_are_seeded_under_the_team_leaders_department(tmp_
         db.commit()
         team = db.scalars(select(User).join(UserProfile).where(UserProfile.team == "IT아미고팀", UserProfile.department == "IT서비스부").order_by(User.employee_no)).all()
         names = {user.name: user for user in team}
-        assert set(names) == {"최고미", "최금결", "한서진", "윤지호", "배수아", "노은우"}
+        assert set(names) == {"최고미", "한서진", "윤지호", "배수아", "노은우"}
         assert [u.name for u in team if u.is_admin] == ["최고미"]
         assert names["한서진"].login_id == "1210815" and names["한서진"].profile.position == "과장"
     employee_numbers = [account[0] for account in seed.ACCOUNTS]
     assert len(employee_numbers) == len(set(employee_numbers))  # 사번이 겹치지 않는다
+
+
+def test_digital_business_team_has_its_leader_and_choe_geumgyeol(tmp_path):
+    seed = load_seed()
+    with make_db(tmp_path) as db:
+        seed.upsert_accounts(db)
+        db.commit()
+        team = db.scalars(select(User).join(UserProfile).where(UserProfile.team == "디지털사업팀", UserProfile.department == "디지털금융부").order_by(User.employee_no)).all()
+        assert {u.name for u in team} == {"장하준", "최금결", "오세준"}
+        assert [(u.name, u.login_id) for u in team if u.is_admin] == [("장하준", "1100812")]
+        assert next(u for u in team if u.name == "최금결").login_id == "1111111"  # 최금결은 사번 그대로 팀만 옮겨진다
 
 
 def test_rename_updates_the_account_and_the_names_copied_into_handovers(tmp_path):
