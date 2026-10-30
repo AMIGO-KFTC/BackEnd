@@ -182,3 +182,20 @@ def test_recipient_sees_each_new_edit(mock_client):
     latest = mock_client.get("/api/handovers/received").json()["handovers"][0]
     assert latest["document_version"] == saved["document"]["version"] and latest["document_origin"] == "user" and latest["document_origin_label"] == "직접 수정"
     assert mock_client.get(f"/api/sessions/{sid}/document").json()["markdown"].endswith("담당자 연락처 추가")  # 받은 인수인계 화면이 읽는 문서
+
+
+def test_received_list_shows_the_message_the_sender_left(mock_client):
+    """전송할 때 남긴 한마디가 받은 인수인계 목록(/api/handovers/received)에 내려온다. 남기지 않았으면 빈 값."""
+    login(mock_client, "demo")
+    sid = task_session(mock_client, "기관 홈페이지 운영")
+    mock_client.post(f"/api/sessions/{sid}/transfers", json={"recipient_name": "박준호", "message": "  SSL 갱신 일정 꼭 확인해 주세요.  "})
+    other = task_session(mock_client, "정보보호 점검") if any(t["name"] == "정보보호 점검" for t in mock_client.get("/api/unit-tasks").json()["tasks"]) else None
+    if other:
+        mock_client.post(f"/api/sessions/{other}/transfers", json={"recipient_name": "박준호"})
+    mock_client.post("/api/auth/logout")
+
+    login(mock_client, "junho.park")
+    received = {h["id"]: h for h in mock_client.get("/api/handovers/received").json()["handovers"]}
+    assert received[sid]["message"] == "SSL 갱신 일정 꼭 확인해 주세요." and received[sid]["sent_at"]
+    if other:
+        assert received[other]["message"] == ""

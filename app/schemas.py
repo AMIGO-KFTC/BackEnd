@@ -738,6 +738,8 @@ class ReceivedHandoverOut(BaseModel):
     document_origin: str = Field(default="", description="최신 인수인계서의 출처: ai(AI 작성) | user(직접 수정) | restore(복원), 문서가 없으면 빈 값")
     document_origin_label: str = ""
     document_updated_at: datetime | None = Field(default=None, description="최신 인수인계서가 만들어진(수정된) 시각")
+    message: str = Field(default="", description="인계자가 전송할 때 남긴 한마디(받은 인수인계 목록에서만 채워진다. 팀 인수인계서 목록은 빈 값)")
+    sent_at: datetime | None = Field(default=None, description="인계자가 나에게 전송한 시각(받은 인수인계 목록에서만)")
     created_at: datetime
     updated_at: datetime
 
