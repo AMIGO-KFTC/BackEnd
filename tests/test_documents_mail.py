@@ -260,3 +260,37 @@ def test_gantt_edit_keeps_ai_version_or_user_edits(mock_client):
     row = re.search(rf"^<tr><td>{re.escape(name)}</td>(.*?)<td>[^<]*</td></tr>$", third["markdown"], re.M).group(1)
     assert row == "<td></td>" * 3 + '<td class="bar" bgcolor="#7055C8" colspan="2">&nbsp;</td>' + "<td></td>" * 3  # 2026 4분기 + 2027 1분기
     assert mock_client.put(f"/api/sessions/{sid}/document/gantt", json={"name": name, "months": [13]}).status_code == 422
+
+
+def test_gantt_edit_works_even_when_the_ai_has_no_state_for_the_document(mock_client, monkeypatch):
+    """데모·가져온 문서처럼 AI 작업 기록이 없어도(예전에는 409 '아직 분석을 시작하지 않았습니다') 문서의 일정표 행을 직접 고쳐 저장한다."""
+    import re
+
+    from amigo_agent import AgentStateError
+
+    sid = task_by_name(mock_client, "기관 홈페이지 운영")["session_id"]
+    doc = mock_client.get(f"/api/sessions/{sid}/document").json()
+    name = re.search(r"^<tr><td>([^<]+)</td><td", doc["markdown"], re.M).group(1)
+
+    def no_state(*args, **kwargs):
+        raise AgentStateError("아직 분석을 시작하지 않았습니다.")
+
+    monkeypatch.setattr(mock_client.app.state.services.agent, "edit_gantt", no_state)
+
+    # AI 초안이 현재 문서면 같은 버전을 그 자리에서 고친다
+    first = mock_client.put(f"/api/sessions/{sid}/document/gantt", json={"name": name, "nth": 0, "months": [202612, 202701]})
+    assert first.status_code == 200, first.text
+    assert first.json()["version"] == doc["version"] and first.json()["markdown"] != doc["markdown"]
+    row = re.search(rf"^<tr><td>{re.escape(name)}</td>(.*?)<td>[^<]*</td></tr>$", first.json()["markdown"], re.M).group(1)
+    assert row == "<td></td>" * 3 + '<td class="bar" bgcolor="#7055C8" colspan="2">&nbsp;</td>' + "<td></td>" * 3  # 2026 4분기 + 2027 1분기(8칸 분기 표)
+
+    # 직접 고친 문서면 막대만 옮긴 새 버전이 생기고 직접 쓴 글은 남는다
+    edited = first.json()["markdown"] + "\n\n> 인계자 메모: 직접 쓴 글\n"
+    mock_client.put(f"/api/sessions/{sid}/document", json={"markdown": edited, "base_version": first.json()["version"]})
+    second = mock_client.put(f"/api/sessions/{sid}/document/gantt", json={"name": name, "nth": 0, "months": [202603]})
+    assert second.status_code == 200 and second.json()["origin"] == "user" and "인계자 메모: 직접 쓴 글" in second.json()["markdown"]
+    assert mock_client.get(f"/api/sessions/{sid}/document/versions").json()["versions"][0]["note"] == "월별 일정표 수정"
+
+    # 문서에도 없는 이름이면 예전처럼 409
+    missing = mock_client.put(f"/api/sessions/{sid}/document/gantt", json={"name": "없는 업무", "nth": 0, "months": [1]})
+    assert missing.status_code == 409 and "분석을 시작하지 않았습니다" in missing.json()["detail"]

@@ -13,6 +13,7 @@ from typing import Literal
 from urllib.parse import quote
 
 from amigo_agent import AgentStateError
+from amigo_agent.edits import edit_gantt_markdown
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import func, select
@@ -209,7 +210,18 @@ def edit_gantt(
     try:
         result = services.agent.edit_gantt(session_id, body.name, body.nth, body.months)
     except AgentStateError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        # AI 작업 기록이 없는 문서(데모·가져온 문서)이거나, 직접 고친 이름이 AI 가 기억하는 이름과 달라진 경우: 문서의 일정표 행을 직접 고친다.
+        # 이름·비고 같은 글은 그대로 두고 막대 칸만 다시 그린다. 문서에서도 행을 못 찾으면 그때 409.
+        fixed = edit_gantt_markdown(row.document_md, body.name, body.nth, body.months)
+        if fixed is None:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        current = latest_version(db, session_id)
+        if current is not None and current.origin == "ai" and current.version == row.document_version:
+            current.markdown = row.document_md = row.ai_document_md = fixed
+        elif fixed != row.document_md:
+            add_version(db, row, fixed, origin="user", based_on=row.document_version, note="월별 일정표 수정", author=user)
+        db.commit()
+        return get_document(session_id, db)
     rendered = str(result["markdown"])
     current = latest_version(db, session_id)
     if current is not None and current.origin == "ai" and current.version == row.document_version:
