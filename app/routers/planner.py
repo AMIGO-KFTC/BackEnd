@@ -22,9 +22,11 @@ from ..schemas import (
     OnetelImportIn,
     OnetelImportResult,
     PlannerCleared,
+    PlannerEventHistoryResult,
     PlannerEventIn,
     PlannerEventOut,
     PlannerEventResult,
+    PlannerEventUpdate,
     PlannerHistoryIn,
     PlannerHistoryOut,
     PlannerHistoryResult,
@@ -52,11 +54,7 @@ MAX_HISTORY = 50  # 할 일 하나에 남길 수 있는 진행 이력 수
 TOO_MANY = "더 저장할 수 없습니다. 지난 일정이나 완료한 할 일을 지운 뒤 다시 시도해 주세요."
 
 
-def _event_out(row: PlannerEvent) -> PlannerEventOut:
-    return PlannerEventOut(id=row.key, date=row.date, text=row.text, memo=row.memo or "", done=bool(row.done))
-
-
-def _history_of(row: PlannerTodo) -> list[dict]:
+def _history_of(row: PlannerTodo | PlannerEvent) -> list[dict]:
     try:
         items = json.loads(row.history_json or "[]")
     except ValueError:
@@ -64,9 +62,44 @@ def _history_of(row: PlannerTodo) -> list[dict]:
     return [i for i in items if isinstance(i, dict) and i.get("id") and i.get("text")] if isinstance(items, list) else []
 
 
+def _history_out(row: PlannerTodo | PlannerEvent) -> list[PlannerHistoryOut]:
+    return [PlannerHistoryOut(id=str(i["id"]), text=str(i["text"]), created_at=str(i.get("created_at", ""))) for i in _history_of(row)]
+
+
+def _event_out(row: PlannerEvent) -> PlannerEventOut:
+    return PlannerEventOut(id=row.key, date=row.date, text=row.text, memo=row.memo or "", done=bool(row.done), history=_history_out(row))
+
+
 def _todo_out(row: PlannerTodo) -> PlannerTodoOut:
-    history = [PlannerHistoryOut(id=str(i["id"]), text=str(i["text"]), created_at=str(i.get("created_at", ""))) for i in _history_of(row)]
-    return PlannerTodoOut(id=row.key, text=row.text, done=bool(row.done), date=row.date, memo=row.memo or "", history=history)
+    return PlannerTodoOut(id=row.key, text=row.text, done=bool(row.done), date=row.date, memo=row.memo or "", history=_history_out(row))
+
+
+# 진행 이력은 할 일과 일정(원텔에서 가져온 것 포함)이 같은 방식으로 쓴다: 추가 · 고치기 · 지우기
+def _history_add(row: PlannerTodo | PlannerEvent, text: str) -> dict:
+    items = _history_of(row)
+    if len(items) >= MAX_HISTORY:
+        raise HTTPException(status_code=409, detail=f"진행 이력은 업무마다 {MAX_HISTORY}개까지 남길 수 있습니다.")
+    entry = {"id": uuid.uuid4().hex, "text": text, "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    row.history_json = json.dumps([*items, entry], ensure_ascii=False)
+    return entry
+
+
+def _history_edit(row: PlannerTodo | PlannerEvent, entry_id: str, text: str) -> dict:
+    items = _history_of(row)
+    entry = next((i for i in items if str(i["id"]) == entry_id), None)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="진행 이력을 찾을 수 없습니다.")
+    entry["text"] = text  # 적은 시각(created_at)은 그대로 둔다
+    row.history_json = json.dumps(items, ensure_ascii=False)
+    return entry
+
+
+def _history_remove(row: PlannerTodo | PlannerEvent, entry_id: str) -> None:
+    items = _history_of(row)
+    kept = [i for i in items if str(i["id"]) != entry_id]
+    if len(kept) == len(items):
+        raise HTTPException(status_code=404, detail="진행 이력을 찾을 수 없습니다.")
+    row.history_json = json.dumps(kept, ensure_ascii=False)
 
 
 def _routine_out(row: PlannerRoutine) -> PlannerRoutineOut:
@@ -155,19 +188,52 @@ def add_event(body: PlannerEventIn, response: Response, user: User = Depends(cur
     return PlannerEventResult(message="일정을 추가했습니다." if created else "이미 있는 일정입니다.", event=_event_out(row))
 
 
-@router.patch("/events/{event_id}", response_model=PlannerEventResult, summary="일정 수정(보낸 필드만: 내용 · 메모 · 다 했는지)")
-def update_event(event_id: str, body: PlannerItemUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+@router.patch("/events/{event_id}", response_model=PlannerEventResult, summary="일정 수정(보낸 필드만: 내용 · 날짜(마감일) · 메모 · 다 했는지)")
+def update_event(event_id: str, body: PlannerEventUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
     row = _find(db, PlannerEvent, user, event_id)
     if row is None:
         raise HTTPException(status_code=404, detail="일정을 찾을 수 없습니다.")
     if body.text is not None:
         row.text = body.text
+    if body.date is not None:
+        row.date = body.date
     if "memo" in body.model_fields_set:
         row.memo = body.memo or ""
     if body.done is not None:
         row.done = body.done
     db.commit()
     return PlannerEventResult(message="일정을 고쳤습니다.", event=_event_out(row))
+
+
+def _event_or_404(db: Session, user: User, event_id: str) -> PlannerEvent:
+    row = _find(db, PlannerEvent, user, event_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="일정을 찾을 수 없습니다.")
+    return row
+
+
+@router.post("/events/{event_id}/history", response_model=PlannerEventHistoryResult, status_code=201, summary="일정(원텔에서 가져온 것 포함)의 진행 이력 한 줄 추가(최대 50개)")
+def add_event_history(event_id: str, body: PlannerHistoryIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    row = _event_or_404(db, user, event_id)
+    entry = _history_add(row, body.text)
+    db.commit()
+    return PlannerEventHistoryResult(message="진행 이력을 저장했습니다.", entry=PlannerHistoryOut(**entry), event=_event_out(row))
+
+
+@router.patch("/events/{event_id}/history/{entry_id}", response_model=PlannerEventHistoryResult, summary="일정의 진행 이력 한 줄 고치기")
+def update_event_history(event_id: str, entry_id: str, body: PlannerHistoryIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    row = _event_or_404(db, user, event_id)
+    entry = _history_edit(row, entry_id, body.text)
+    db.commit()
+    return PlannerEventHistoryResult(message="진행 이력을 고쳤습니다.", entry=PlannerHistoryOut(**entry), event=_event_out(row))
+
+
+@router.delete("/events/{event_id}/history/{entry_id}", response_model=Result, summary="일정의 진행 이력 한 줄 지우기")
+def delete_event_history(event_id: str, entry_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    row = _event_or_404(db, user, event_id)
+    _history_remove(row, entry_id)
+    db.commit()
+    return Result(message="진행 이력을 지웠습니다.")
 
 
 @router.delete("/events/{event_id}", response_model=Result, summary="일정 삭제")
@@ -270,13 +336,29 @@ def add_todo_history(todo_id: str, body: PlannerHistoryIn, user: User = Depends(
     row = _find(db, PlannerTodo, user, todo_id)
     if row is None:
         raise HTTPException(status_code=404, detail="할 일을 찾을 수 없습니다.")
-    items = _history_of(row)
-    if len(items) >= MAX_HISTORY:
-        raise HTTPException(status_code=409, detail=f"진행 이력은 업무마다 {MAX_HISTORY}개까지 남길 수 있습니다.")
-    entry = {"id": uuid.uuid4().hex, "text": body.text, "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
-    row.history_json = json.dumps([*items, entry], ensure_ascii=False)
+    entry = _history_add(row, body.text)
     db.commit()
     return PlannerHistoryResult(message="진행 이력을 저장했습니다.", entry=PlannerHistoryOut(**entry), todo=_todo_out(row))
+
+
+@router.patch("/todos/{todo_id}/history/{entry_id}", response_model=PlannerHistoryResult, summary="업무 진행 이력 한 줄 고치기(적은 시각은 그대로)")
+def update_todo_history(todo_id: str, entry_id: str, body: PlannerHistoryIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    row = _find(db, PlannerTodo, user, todo_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="할 일을 찾을 수 없습니다.")
+    entry = _history_edit(row, entry_id, body.text)
+    db.commit()
+    return PlannerHistoryResult(message="진행 이력을 고쳤습니다.", entry=PlannerHistoryOut(**entry), todo=_todo_out(row))
+
+
+@router.delete("/todos/{todo_id}/history/{entry_id}", response_model=Result, summary="업무 진행 이력 한 줄 지우기")
+def delete_todo_history(todo_id: str, entry_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    row = _find(db, PlannerTodo, user, todo_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="할 일을 찾을 수 없습니다.")
+    _history_remove(row, entry_id)
+    db.commit()
+    return Result(message="진행 이력을 지웠습니다.")
 
 
 @router.delete("/todos/{todo_id}", response_model=Result, summary="할 일 삭제")

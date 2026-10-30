@@ -1205,12 +1205,23 @@ class PlannerEventIn(_Stripped):
         return _planner_date(value)
 
 
+class PlannerHistoryOut(BaseModel):
+    id: str
+    text: str
+    created_at: str = Field(description="적은 시각(UTC, ISO 8601)")
+
+
+class PlannerHistoryIn(_Stripped):
+    text: str = Field(min_length=1, max_length=500, description="오늘 진행한 내용")
+
+
 class PlannerEventOut(BaseModel):
     id: str
     date: str
     text: str
     memo: str = ""
     done: bool = False
+    history: list[PlannerHistoryOut] = Field(default_factory=list, description="업무 진행 이력(오래된 것부터)")
 
 
 class PlannerItemUpdate(_Stripped):
@@ -1219,6 +1230,17 @@ class PlannerItemUpdate(_Stripped):
     text: str | None = Field(default=None, min_length=1, max_length=200)
     memo: str | None = Field(default=None, max_length=500)
     done: bool | None = None
+
+
+class PlannerEventUpdate(PlannerItemUpdate):
+    """일정 수정: PlannerItemUpdate 에 날짜(마감일)가 더해진다. 일정은 날짜가 꼭 있어야 하므로 null 은 '바꾸지 않음'이다."""
+
+    date: str | None = Field(default=None, description="날짜(YYYY-MM-DD)")
+
+    @field_validator("date")
+    @classmethod
+    def _check_date(cls, value):
+        return _planner_date(value)
 
 
 class PlannerTodoIn(_Stripped):
@@ -1244,16 +1266,6 @@ class PlannerTodoUpdate(_Stripped):
     @classmethod
     def _check_date(cls, value):
         return _planner_date(value)
-
-
-class PlannerHistoryOut(BaseModel):
-    id: str
-    text: str
-    created_at: str = Field(description="적은 시각(UTC, ISO 8601)")
-
-
-class PlannerHistoryIn(_Stripped):
-    text: str = Field(min_length=1, max_length=500, description="오늘 진행한 내용")
 
 
 class PlannerTodoOut(BaseModel):
@@ -1316,6 +1328,11 @@ class PlannerTodoResult(Result):
 class PlannerHistoryResult(Result):
     entry: PlannerHistoryOut
     todo: PlannerTodoOut
+
+
+class PlannerEventHistoryResult(Result):
+    entry: PlannerHistoryOut
+    event: PlannerEventOut
 
 
 class PlannerImportIn(BaseModel):
