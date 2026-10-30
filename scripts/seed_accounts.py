@@ -18,7 +18,7 @@ from sqlalchemy import create_engine, select, update  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
 from app.config import get_settings  # noqa: E402
-from app.models import Base, HandoverSession, HandoverTransfer, User, UserProfile  # noqa: E402
+from app.models import Base, DocumentVersion, HandoverSession, HandoverTransfer, User, UserProfile  # noqa: E402
 from app.security import hash_password  # noqa: E402
 
 PASSWORD = "amigo1234"  # 시연용 공통 비밀번호(시드는 DB 에 직접 넣어서 가입 규칙 검사를 거치지 않는다)
@@ -41,11 +41,23 @@ ACCOUNTS = [
 
 # 예전부터 있던 계정의 이름 바꾸기(로그인 아이디 → 새 이름). 계정이 없으면 건너뛴다.
 # 이름을 복사해 저장해 둔 곳(인계자 이름·인수자·전송한 사람)도 같이 바꾼다. 이미 만들어진 인수인계서 본문·대화 기록은 고치지 않는다.
+FORMER_NAMES = {"hwan": "최환", "yunhui": "임윤희", "demo": "김민준", "1111111": "김민준"}  # 로그인 아이디 → 그 계정이 예전에 쓰던 이름(이미 이름만 바뀐 DB 도 인수인계서 제목·문서를 맞춘다)
 RENAMES = {
     "hwan": "최기아",
     "yunhui": "임삼성",
     "demo": "최금결",  # 예전 데모 계정(사번 1111111, 시드 계정과 같은 사람)
 }
+
+
+def replace_name_in_documents(db: Session, user: User, old_name: str, new_name: str) -> None:
+    """이 사람 인수인계서의 제목('김민준 · …인수인계')과 문서 안의 인계자 이름을 새 이름으로 바꾼다(여러 번 실행해도 같다)."""
+    for row in db.scalars(select(HandoverSession).where(HandoverSession.user_id == f"user:{user.id}")):
+        row.title = row.title.replace(old_name, new_name)
+        for column in ("document_md", "ai_document_md"):
+            if getattr(row, column, None):
+                setattr(row, column, getattr(row, column).replace(old_name, new_name))
+        for version in db.scalars(select(DocumentVersion).where(DocumentVersion.session_id == row.id)):
+            version.markdown = version.markdown.replace(old_name, new_name)
 
 
 def set_name(db: Session, user: User, new_name: str) -> None:
@@ -56,6 +68,7 @@ def set_name(db: Session, user: User, new_name: str) -> None:
     user.name = new_name
     db.execute(update(HandoverSession).where(HandoverSession.user_id == f"user:{user.id}").values(owner_name=new_name))
     db.execute(update(HandoverTransfer).where(HandoverTransfer.sender_id == user.id).values(sender_name=new_name))
+    replace_name_in_documents(db, user, old_name, new_name)
     for row in db.scalars(select(HandoverSession).where(HandoverSession.successor.contains(old_name))):  # '임윤희 계장' 같은 인수자 글
         row.successor = row.successor.replace(old_name, new_name)
     print(f"이름 변경  {user.login_id:10} {old_name} → {new_name}")
@@ -86,6 +99,10 @@ def rename_accounts(db: Session) -> None:
         user = db.scalar(select(User).where(User.login_id == login_id))
         if user is not None:
             set_name(db, user, new_name)
+    for login_id, old_name in FORMER_NAMES.items():
+        user = db.scalar(select(User).where(User.login_id == login_id))
+        if user is not None and user.name != old_name:
+            replace_name_in_documents(db, user, old_name, user.name)
 
 
 def main() -> None:
