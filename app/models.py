@@ -411,6 +411,7 @@ class PlannerEvent(Base):
     text: Mapped[str] = mapped_column(String(200))
     memo: Mapped[str] = mapped_column(String(500), default="")  # 짧은 메모(캘린더에서 항목을 눌러 적는다)
     done: Mapped[bool] = mapped_column(Boolean, default=False)  # 체크리스트로 다 했는지
+    history_json: Mapped[str] = mapped_column(Text, default="[]")  # 업무 진행 이력 [{id, text, created_at}] (PlannerTodo 와 같다. 원텔에서 가져온 일정도 쓴다)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 

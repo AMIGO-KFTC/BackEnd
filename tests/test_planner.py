@@ -244,3 +244,52 @@ def test_todo_history_limit(client):
         assert client.post("/api/planner/todos/td-h/history", json={"text": f"진행 {i}"}).status_code == 201
     over = client.post("/api/planner/todos/td-h/history", json={"text": "하나 더"})
     assert over.status_code == 409 and "50" in over.json()["detail"]
+
+
+def test_todo_history_edit_and_delete(client):
+    login(client)
+    client.post("/api/planner/todos", json={"id": "td-h", "text": "실적 취합"})
+    first = client.post("/api/planner/todos/td-h/history", json={"text": "자료 취합 중"}).json()["entry"]
+    second = client.post("/api/planner/todos/td-h/history", json={"text": "유관부서 회신 대기"}).json()["entry"]
+
+    edited = client.patch(f"/api/planner/todos/td-h/history/{first['id']}", json={"text": "  자료 취합 완료  "})
+    assert edited.status_code == 200
+    body = edited.json()
+    assert body["entry"] == {"id": first["id"], "text": "자료 취합 완료", "created_at": first["created_at"]}  # 적은 시각은 그대로
+    assert [h["text"] for h in body["todo"]["history"]] == ["자료 취합 완료", "유관부서 회신 대기"]  # 순서도 그대로
+
+    assert client.patch(f"/api/planner/todos/td-h/history/{first['id']}", json={"text": "   "}).status_code == 422
+    assert client.patch("/api/planner/todos/td-h/history/nope", json={"text": "x"}).status_code == 404
+    assert client.patch(f"/api/planner/todos/none/history/{first['id']}", json={"text": "x"}).status_code == 404
+
+    assert client.delete(f"/api/planner/todos/td-h/history/{second['id']}").status_code == 200
+    assert client.delete(f"/api/planner/todos/td-h/history/{second['id']}").status_code == 404  # 이미 지웠다
+    assert [h["text"] for h in client.get("/api/planner").json()["todos"][0]["history"]] == ["자료 취합 완료"]
+
+    login(client, "other.user")  # 남의 이력은 고치거나 지울 수 없다
+    assert client.patch(f"/api/planner/todos/td-h/history/{first['id']}", json={"text": "남의 것"}).status_code == 404
+    assert client.delete(f"/api/planner/todos/td-h/history/{first['id']}").status_code == 404
+
+
+def test_onetel_event_works_like_a_regular_item(client):
+    """원텔에서 가져온 일정도 마감일(날짜)을 바꾸고 진행 이력을 남기고 고치고 지울 수 있다."""
+    login(client)
+    chosen = client.get("/api/planner/onetel/events").json()["events"][0]
+    client.post("/api/planner/onetel/import", json={"ids": [chosen["id"]]})
+    event = client.get("/api/planner").json()["events"][0]
+    assert event["id"] == chosen["id"] and event["text"].startswith("[원텔]") and event["history"] == []
+
+    moved = client.patch(f"/api/planner/events/{event['id']}", json={"date": "2026-12-24"}).json()["event"]
+    assert moved["date"] == "2026-12-24" and moved["text"] == event["text"]
+    assert client.patch(f"/api/planner/events/{event['id']}", json={"date": "내일"}).status_code == 422
+    assert client.patch(f"/api/planner/events/{event['id']}", json={"date": None}).json()["event"]["date"] == "2026-12-24"  # null 은 '바꾸지 않음'
+
+    entry = client.post(f"/api/planner/events/{event['id']}/history", json={"text": "참석자 확인"})
+    assert entry.status_code == 201
+    entry_id = entry.json()["entry"]["id"]
+    edited = client.patch(f"/api/planner/events/{event['id']}/history/{entry_id}", json={"text": "참석자 확인 완료"}).json()
+    assert [h["text"] for h in edited["event"]["history"]] == ["참석자 확인 완료"]
+    assert [h["text"] for h in client.get("/api/planner").json()["events"][0]["history"]] == ["참석자 확인 완료"]
+    assert client.delete(f"/api/planner/events/{event['id']}/history/{entry_id}").status_code == 200
+    assert client.get("/api/planner").json()["events"][0]["history"] == []
+    assert client.post("/api/planner/events/none/history", json={"text": "x"}).status_code == 404
