@@ -23,13 +23,21 @@ def test_default_file_lists_units_for_every_mock_team():
     assert team_duties("없는 본부", "IT아미고팀") == [] and team_duties("IT서비스부", "없는 팀") == []
 
 
+def test_digital_business_team_has_its_four_units_with_details():
+    teams = {t["name"]: t for d in org_duties()["divisions"] for t in d["teams"]}
+    team = teams["디지털사업팀"]
+    assert team["duties"] == ["스테이블코인 사업 기획 및 총괄", "신규 디지털자산 서비스 발굴 및 추진", "디지털금융 법/제도 및 정책 대응", "디지털금융위원회 운영"]
+    assert set(team["details"]) == set(team["duties"]) and all(len(items) == 7 for items in team["details"].values())
+    assert teams["법무팀"]["details"] == {}  # 세부업무가 없는 팀은 빈 값
+
+
 def test_custom_file_is_cleaned_and_missing_file_is_empty(tmp_path):
     custom = tmp_path / "duties.json"  # AMIGO_ORG_DUTIES_FILE 로 실제 업무분장을 쓰는 경우
     custom.write_text(json.dumps({"title": "시행세칙", "divisions": [
         {"name": " 가나본부 ", "teams": [{"name": "다라팀", "duties": [" 업무1 ", "", "업무1", 3, "업무2"]}, {"name": ""}]},
         {"teams": []},
     ]}), encoding="utf-8")
-    assert org_duties(str(custom)) == {"title": "시행세칙", "note": "", "divisions": [{"name": "가나본부", "teams": [{"name": "다라팀", "duties": ["업무1", "업무2"]}]}]}
+    assert org_duties(str(custom)) == {"title": "시행세칙", "note": "", "divisions": [{"name": "가나본부", "teams": [{"name": "다라팀", "duties": ["업무1", "업무2"], "details": {}}]}]}
     assert org_duties(str(tmp_path / "missing.json"))["divisions"] == []
 
 
