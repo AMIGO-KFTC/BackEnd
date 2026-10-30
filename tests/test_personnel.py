@@ -41,13 +41,13 @@ def test_admin_registers_several_and_only_own_team_sees_them(client):
     assert [s["name"] for s in mine["schedules"]] == ["IT아미고팀 수시 인사", "2027 상반기 정기인사", "2027 하반기 정기인사"]  # 발령일 순
 
     # 같은 팀 구성원: 우리 팀 일정
-    signup(client, "it.member", "최환", TEAM_IT)
+    signup(client, "it.member", "최기아", TEAM_IT)
     member = client.get("/api/personnel-schedules").json()
     assert member["editable"] is False and len(member["schedules"]) == 3
     assert client.post("/api/admin/personnel-schedules", json={"name": "x", "appoint_date": "2027-01-01"}).status_code == 403
 
     # 다른 팀: 하나도 보이지 않는다
-    signup(client, "ai.member", "임윤희", TEAM_AI)
+    signup(client, "ai.member", "임삼성", TEAM_AI)
     assert client.get("/api/personnel-schedules").json()["schedules"] == []
 
 

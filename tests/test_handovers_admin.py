@@ -29,15 +29,15 @@ def login(client, login_id: str) -> None:
 
 
 def setup_team(client) -> str:
-    """IT 팀장 + 계장 2명, AI 팀장 + 계장 1명. 김민준 → 임윤희 인수인계 1건을 만들고 그 세션 ID 를 돌려준다."""
+    """IT 팀장 + 계장 2명, AI 팀장 + 계장 1명. 최금결 → 임삼성 인수인계 1건을 만들고 그 세션 ID 를 돌려준다."""
     signup(client, "amigoteamjang", "김미고", TEAM_IT, "팀장", role="admin")
     signup(client, "aiteamjang", "최고미", TEAM_AI, "팀장", role="admin")
-    signup(client, "hwan", "최환", TEAM_IT, "계장")
-    signup(client, "yunhui", "임윤희", TEAM_AI, "계장")
-    signup(client, "demo", "김민준", TEAM_IT, "계장")
+    signup(client, "hwan", "최기아", TEAM_IT, "계장")
+    signup(client, "yunhui", "임삼성", TEAM_AI, "계장")
+    signup(client, "demo", "최금결", TEAM_IT, "계장")
     res = client.post(
         "/api/unit-tasks",
-        json={"tasks": [{"name": "AMIGO 서비스 운영", "description": "배포·장애 대응", "successor": "임윤희 계장", "successor_login_id": "YUNHUI", "handover_date": "2026-11-14"}]},
+        json={"tasks": [{"name": "AMIGO 서비스 운영", "description": "배포·장애 대응", "successor": "임삼성 계장", "successor_login_id": "YUNHUI", "handover_date": "2026-11-14"}]},
     )
     assert res.status_code == 201, res.text
     task = res.json()["tasks"][0]
@@ -47,7 +47,7 @@ def setup_team(client) -> str:
 
 def test_role_in_login_and_me(client):
     signup(client, "amigoteamjang", "김미고", TEAM_IT, "팀장", role="admin")
-    signup(client, "hwan", "최환", TEAM_IT, "계장")
+    signup(client, "hwan", "최기아", TEAM_IT, "계장")
     assert client.get("/api/auth/me").json()["user"]["is_admin"] is False
     login(client, "amigoteamjang")
     body = client.post("/api/auth/login", json={"login_id": "amigoteamjang", "password": PASSWORD}).json()
@@ -56,7 +56,7 @@ def test_role_in_login_and_me(client):
 
 def test_members_list_requires_login_and_profile(client):
     assert client.get("/api/members").status_code == 401
-    signup(client, "hwan", "최환", TEAM_IT, "계장")
+    signup(client, "hwan", "최기아", TEAM_IT, "계장")
     client.cookies.clear()
     assert client.post("/api/auth/signup", json={"login_id": "noprofile", "password": PASSWORD, "name": "무소속"}).status_code == 201
     login(client, "hwan")
@@ -85,7 +85,7 @@ def test_received_handovers_and_read_only_access(client):
     login(client, "yunhui")
     received = client.get("/api/handovers/received").json()["handovers"]
     assert len(received) == 1 and received[0]["id"] == session_id
-    assert received[0]["owner_name"] == "김민준" and received[0]["owner_login_id"] == "demo" and received[0]["task_name"] == "AMIGO 서비스 운영"
+    assert received[0]["owner_name"] == "최금결" and received[0]["owner_login_id"] == "demo" and received[0]["task_name"] == "AMIGO 서비스 운영"
     assert received[0]["stage"] == "setup" and received[0]["document_version"] == 1
 
     # 인수자는 읽기만: 상태·문서 조회는 되고, 대화·삭제는 남의 세션처럼 404
@@ -119,7 +119,7 @@ def test_admin_scope_is_own_team(client):
 
     handovers = client.get("/api/admin/handovers").json()["handovers"]
     assert [h["id"] for h in handovers] == [session_id]
-    assert handovers[0]["owner_login_id"] == "demo" and handovers[0]["successor"] == "임윤희 계장" and handovers[0]["successor_login_id"] == "yunhui"
+    assert handovers[0]["owner_login_id"] == "demo" and handovers[0]["successor"] == "임삼성 계장" and handovers[0]["successor_login_id"] == "yunhui"
     assert client.get(f"/api/sessions/{session_id}/state").status_code == 200  # 같은 팀 구성원의 세션은 읽을 수 있다
     assert client.post(f"/api/sessions/{session_id}/chat", json={"text": "안녕"}).status_code == 404  # 팀원 세션은 읽기(검토)만, 고치는 요청은 404
 
@@ -140,7 +140,7 @@ def test_admin_deletes_member_with_handovers(client):
 
     demo = next(m for m in client.get("/api/admin/members").json()["members"] if m["login_id"] == "demo")
     res = client.delete(f"/api/admin/members/{demo['id']}")
-    assert res.status_code == 200 and "김민준" in res.json()["message"]
+    assert res.status_code == 200 and "최금결" in res.json()["message"]
     assert [m["login_id"] for m in client.get("/api/admin/members").json()["members"]] == ["amigoteamjang", "hwan"]
     assert client.get("/api/admin/handovers").json()["handovers"] == []
     assert client.post("/api/auth/login", json={"login_id": "demo", "password": PASSWORD}).status_code == 401

@@ -19,12 +19,12 @@ def test_admin_shares_and_only_own_team_sees_them(client):
     assert mine["editable"] is True
     assert [s["title"] for s in mine["schedules"]] == ["주간 회의", "하반기 팀 워크숍", "보안 점검"]  # 시작일 순
 
-    signup(client, "it.member", "최환", TEAM_IT)
+    signup(client, "it.member", "최기아", TEAM_IT)
     member = client.get("/api/team-schedules").json()
     assert member["editable"] is False and len(member["schedules"]) == 3
     assert client.post("/api/admin/team-schedules", json={"title": "x", "start_date": "2027-01-01"}).status_code == 403
 
-    signup(client, "ai.member", "임윤희", TEAM_AI)
+    signup(client, "ai.member", "임삼성", TEAM_AI)
     assert client.get("/api/team-schedules").json()["schedules"] == []
 
 

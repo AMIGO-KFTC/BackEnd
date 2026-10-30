@@ -38,10 +38,10 @@ def settings(settings):
 
 @pytest.fixture()
 def team(client):
-    """IT 팀장 김미고(관리자) + 계장 김민준(demo), 최환(hwan). 김민준의 단위업무 1건(문서 v1)을 만든다."""
+    """IT 팀장 김미고(관리자) + 계장 최금결(demo), 최기아(hwan). 최금결의 단위업무 1건(문서 v1)을 만든다."""
     signup(client, "amigoteamjang", "김미고", TEAM_IT, "팀장", role="admin")
-    signup(client, "hwan", "최환", TEAM_IT, "계장")
-    signup(client, "demo", "김민준", TEAM_IT, "계장")
+    signup(client, "hwan", "최기아", TEAM_IT, "계장")
+    signup(client, "demo", "최금결", TEAM_IT, "계장")
     res = client.post("/api/unit-tasks", json={"tasks": [{"name": "AMIGO 서비스 운영", "description": "배포·장애 대응"}]})
     assert res.status_code == 201, res.text
     task = res.json()["tasks"][0]
@@ -101,7 +101,7 @@ def test_member_still_writes(client, team):
     login(client, "demo")
     s = f"/api/sessions/{team['session_id']}"
     task_id = team["task_id"]
-    assert client.post("/api/sessions", json={"owner_name": "김민준"}).status_code == 201
+    assert client.post("/api/sessions", json={"owner_name": "최금결"}).status_code == 201
     assert client.post("/api/unit-tasks", json={"tasks": [{"name": "협력사 계약 관리"}]}).status_code == 201
     assert client.patch(f"/api/unit-tasks/{task_id}", json={"description": "수정"}).status_code == 200
     assert client.post(f"/api/unit-tasks/{task_id}/files", files=FILE).status_code == 201
@@ -116,7 +116,7 @@ def test_admin_sees_team_handovers_in_chat_and_detail(client, team):
     """팀장은 챗봇 질문 범위에서 팀원 인수인계(team)를 보고, 세션 상세의 viewer 로 팀원 문서인지 안다."""
     login(client, "amigoteamjang")
     scopes = client.get("/api/handover-chat/scopes").json()["scopes"]
-    assert [(s["id"], s["kind"], s["owner_name"]) for s in scopes] == [(team["session_id"], "team", "김민준")]
+    assert [(s["id"], s["kind"], s["owner_name"]) for s in scopes] == [(team["session_id"], "team", "최금결")]
     assert client.get(f"/api/sessions/{team['session_id']}").json()["viewer"] == "team"
     res = client.post("/api/handover-chat", json={"question": "개요 알려 줘", "scope_ids": [team["session_id"]]})
     assert res.status_code == 200, res.text
