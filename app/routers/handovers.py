@@ -69,8 +69,10 @@ def duty_names(row: HandoverSession) -> list[str]:
     return names
 
 
-def received_out(row: HandoverSession, owner_login_id: str = "", latest: DocumentVersion | None = None) -> ReceivedHandoverOut:
+def received_out(row: HandoverSession, owner_login_id: str = "", latest: DocumentVersion | None = None, transfer: HandoverTransfer | None = None) -> ReceivedHandoverOut:
     return ReceivedHandoverOut(
+        message=(transfer.message or "") if transfer is not None else "",
+        sent_at=as_utc(transfer.created_at) if transfer is not None else None,
         id=row.id,
         title=row.title,
         task_name=row.task_name,
@@ -112,7 +114,12 @@ def list_received(user: User = Depends(current_user), db: Session = Depends(get_
     ).all()
     owners = owner_login_ids(db, rows)
     latest = latest_versions(db, [r.id for r in rows])
-    return ReceivedHandoversResult(handovers=[received_out(r, owners.get(r.user_id, ""), latest.get(r.id)) for r in rows])
+    # 인계자가 전송하면서 남긴 한마디. 같은 업무를 여러 번 보냈다면 가장 나중 것이 이긴다(오래된 순으로 읽어 덮어쓴다)
+    sent = db.scalars(
+        select(HandoverTransfer).where(HandoverTransfer.recipient_id == user.id, HandoverTransfer.session_id.in_([r.id for r in rows] or [""])).order_by(HandoverTransfer.created_at)
+    ).all()
+    transfers = {t.session_id: t for t in sent}
+    return ReceivedHandoversResult(handovers=[received_out(r, owners.get(r.user_id, ""), latest.get(r.id), transfers.get(r.id)) for r in rows])
 
 
 @router.post("/handovers/received/{session_id}/calendar", response_model=HandoverCalendarResult, summary="받은 인수인계서의 정기업무·마감일을 내 캘린더에 넣기(같은 일정은 건너뜀)")
